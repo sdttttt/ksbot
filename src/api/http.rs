@@ -1,13 +1,13 @@
 use anyhow::bail;
 use std::sync::Arc;
 
-use super::{is_http_ok, kook_api, KookResponse};
+use super::{is_http_ok, kook_api, not_compress, KookResponse};
 
 const GATEWAY_URL: &str = "/gateway/index";
 const GATEWAY_DATA_KEY: &str = "url";
 
 pub async fn get_wss_gateway(c: Arc<reqwest::Client>) -> Result<String, anyhow::Error> {
-    let res = c.get(kook_api(GATEWAY_URL)).send().await?;
+    let res = c.get(not_compress(&kook_api(GATEWAY_URL))).send().await?;
 
     let kres = res.json::<KookResponse>().await?;
     is_http_ok(&kres);

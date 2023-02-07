@@ -2,7 +2,7 @@ use anyhow::bail;
 use lazy_static::lazy_static;
 use reqwest::{header, Client};
 use serde::Deserialize;
-use std::{collections::HashMap, iter::Map};
+use std::{collections::HashMap, fmt::format, iter::Map};
 pub mod http;
 
 const KOOK_BASE_API: &str = "https://www.kookapp.cn/api/v3";
@@ -17,6 +17,10 @@ struct KookResponse<T = HashMap<String, String>> {
 
 fn kook_api(url: &str) -> String {
     format!("{}{}", KOOK_BASE_API, url)
+}
+
+fn not_compress(url: &str) -> String {
+    format!("{}?compress=0", url)
 }
 
 fn is_http_ok(kres: &KookResponse) -> Result<(), anyhow::Error> {

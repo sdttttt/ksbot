@@ -2,11 +2,12 @@ use anyhow::bail;
 use std::{env, path::Path};
 
 use crate::conf::Config;
-use crate::state::BotRuntime;
+use crate::runtime::BotRuntime;
 
 mod api;
 mod conf;
-mod state;
+mod runtime;
+mod ws;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
