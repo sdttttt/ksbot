@@ -1,5 +1,7 @@
 use crate::conf::Config;
-use crate::ws::{KookWSFrame, WS_DATA_CODE_FIELD, WS_DATA_CODE_OK, WS_DATA_HELLO_SESSION_ID_FIELD};
+use crate::ws::{
+    KookWSFrame, WS_DATA_CODE_FIELD, WS_DATA_CODE_OK, WS_DATA_HELLO_SESSION_ID_FIELD, WS_PONG,
+};
 use crate::{api::http::get_wss_gateway, ws::WS_HELLO};
 use anyhow::bail;
 use futures_util::{
@@ -23,7 +25,7 @@ enum BotState {
     Timeout,        // 超时：尝试重试
 }
 
-// 机器人运行时：这里没有任何实现功能的代码，只有机器人和服务器保持连接的状态机代码。
+// 机器人运行时, 这里都是和服务端保持通讯的代码。
 pub struct BotRuntime {
     state: BotState,
     conf: Arc<Config>,
@@ -118,10 +120,17 @@ impl BotRuntime {
                 }
 
                 BotState::Working => {
-                    todo!()
+                    match self.work().await {
+                        Err(e) => println!("工作出错: {:?}", e),
+                        _ => (),
+                    }
+
+                    self.state = BotState::GetGateway;
                 }
 
-                BotState::Timeout => todo!(),
+                BotState::Timeout => {
+                    self.state = BotState::GetGateway;
+                }
             };
         }
     }
@@ -191,15 +200,40 @@ impl BotRuntime {
     async fn work(&mut self) -> Result<(), anyhow::Error> {
         // 心跳定时器，30s一次
         let mut keeplive_interval = tokio::time::interval(Duration::from_secs(30));
-        // 最后一次发送心跳的时间.
-        let mut last_heartbeat_time = tokio::time::Instant::now();
+
+        // 把pong发送到
+        let (pong_send, mut pong_rece) = tokio::sync::mpsc::channel::<bool>(1);
+
+        let read = self.ws_read.as_mut().unwrap();
+        let write = self.ws_write.as_mut().unwrap();
+
         loop {
             tokio::select! {
                 _ = keeplive_interval.tick() =>  {
+                    // 每30秒发送一个ping，然后监听pong_rece是否有响应包传来
+                    let ping_frame = KookWSFrame::ping(self.sn);
+                    let ping_msg = Message::try_from(ping_frame)?;
+                    write.send(ping_msg).await?;
+                    match timeout(Duration::from_secs(6), pong_rece.recv()).await {
+                        Err(_) => bail!("pong 超时"),
+                        _ => (),
+                    };
+                }
 
+                message = read.next() => {
+                    if let Some(Ok(msg)) = message {
+                       let frame =  KookWSFrame::try_from(msg)?;
+                       match frame.s {
+
+                        WS_PONG => {
+                            pong_send.send(true).await?;
+                        },
+
+                        _ => unreachable!()
+                       };
+                    }
                 }
             }
         }
-        todo!()
     }
 }

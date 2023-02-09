@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use anyhow::bail;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio_tungstenite::tungstenite::Message;
 
 // 信令
 pub const WS_MESSAGE: u8 = 0;
@@ -23,9 +25,43 @@ pub const WS_DATA_CODE_TOKEN_EXPIRE: u64 = 40103;
 pub const WS_DATA_CODE_FIELD: &str = "code";
 pub const WS_DATA_HELLO_SESSION_ID_FIELD: &str = "session_id";
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct KookWSFrame {
     pub s: u8,                             // 信令
     pub d: Option<HashMap<String, Value>>, // 数据
     pub sn: Option<u64>,                   // 会话字段，应该用不上
+}
+
+impl KookWSFrame {
+    pub fn ping(sn: u64) -> Self {
+        Self {
+            s: WS_PING,
+            d: None,
+            sn: Some(sn),
+        }
+    }
+}
+
+impl TryFrom<Message> for KookWSFrame {
+    type Error = anyhow::Error;
+
+    fn try_from(v: Message) -> Result<Self, Self::Error> {
+        match v {
+            Message::Text(text) => {
+                let frame = serde_json::from_str::<Self>(&text)?;
+                Ok(frame)
+            }
+
+            _ => bail!("消息类型不是文本类型，TryFrom失败"),
+        }
+    }
+}
+
+impl TryFrom<KookWSFrame> for Message {
+    type Error = anyhow::Error;
+
+    fn try_from(f: KookWSFrame) -> Result<Self, Self::Error> {
+        let json_str = serde_json::to_string::<KookWSFrame>(&f)?;
+        Ok(Message::Text(json_str))
+    }
 }
