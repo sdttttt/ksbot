@@ -1,6 +1,7 @@
-use crate::conf::Config;
+use crate::conf::BotConfig;
 use crate::ws::{
     KookWSFrame, WS_DATA_CODE_FIELD, WS_DATA_CODE_OK, WS_DATA_HELLO_SESSION_ID_FIELD, WS_PONG,
+    WS_DATA_CODE_INVAILD_TOKEN, WS_DATA_CODE_MISS_PARAM, WS_DATA_CODE_TOKEN_VALID_FAIL, WS_RECONNECT, WS_RESUME_ACK, WS_MESSAGE, WS_DATA_CODE_TOKEN_EXPIRE
 };
 use crate::{api::http::get_wss_gateway, ws::WS_HELLO};
 use anyhow::bail;
@@ -11,7 +12,6 @@ use futures_util::{
 
 use reqwest::{header, Client};
 use serde_json::Value;
-use std::collections::hash_map::OccupiedEntry;
 use std::{sync::Arc, time::Duration};
 use tokio::time::timeout;
 use tokio::{net::TcpStream, time::sleep};
@@ -22,13 +22,14 @@ enum BotState {
     ConnectGateway, // 已经获取网关：尝试连接上网关
     WaitHello,      // 等待服务端Hello，包
     Working,        // 工作中：保持心跳
-    Timeout,        // 超时：尝试重试
+    HeartTimeout,   // 心跳超时：恢复到ConnectGateway
+    Reconnect,      // 重新连接：恢复到GetGateway
 }
 
 // 机器人运行时, 这里都是和服务端保持通讯的代码。
 pub struct BotRuntime {
     state: BotState,
-    conf: Arc<Config>,
+    conf: BotConfig,
     gateway_url: Option<String>,
     session_id: Option<String>,
     sn: u64,
@@ -40,8 +41,7 @@ pub struct BotRuntime {
 }
 
 impl BotRuntime {
-    pub fn init(conf: Config) -> Self {
-        let conf = Arc::new(conf);
+    pub fn init(conf: BotConfig) -> Self {
         let http_client = {
             let mut headers = header::HeaderMap::new();
             headers.append(
@@ -69,7 +69,7 @@ impl BotRuntime {
 
         loop {
             match self.state {
-                BotState::GetGateway => match self.try_get_gateway().await {
+                BotState::GetGateway | BotState::Reconnect => match self.try_get_gateway().await {
                     Ok(_) => {
                         self.state = BotState::ConnectGateway;
                         println!("获取网关成功，尝试连接...")
@@ -80,23 +80,25 @@ impl BotRuntime {
                     }
                 },
 
-                BotState::ConnectGateway => match self.connect_wss_server().await {
-                    Ok(_) => {
-                        self.state = BotState::WaitHello;
-                        // 成功后，重置连接网关计数
-                        connect_gateway_count = 0;
-                        println!("连接网关成功，等待服务器响应.")
-                    }
-                    Err(e) => {
-                        println!("连接网关失败: {}", e);
-                        if connect_gateway_count > 2 {
-                            println!("连接网关已到最大重试次数, 重新获取网关.");
-                            self.state = BotState::GetGateway;
+                BotState::ConnectGateway | BotState::HeartTimeout => {
+                    match self.connect_wss_server().await {
+                        Ok(_) => {
+                            self.state = BotState::WaitHello;
+                            // 成功后，重置连接网关计数
+                            connect_gateway_count = 0;
+                            println!("连接网关成功，等待服务器响应.")
                         }
-                        connect_gateway_count += 1;
-                        sleep(Duration::from_secs(4)).await;
+                        Err(e) => {
+                            println!("连接网关失败: {}", e);
+                            if connect_gateway_count > 2 {
+                                println!("连接网关已到最大重试次数, 重新获取网关.");
+                                self.state = BotState::GetGateway;
+                            }
+                            connect_gateway_count += 1;
+                            sleep(Duration::from_secs(4)).await;
+                        }
                     }
-                },
+                }
 
                 BotState::WaitHello => {
                     let wait_hello_f = self.wait_hello();
@@ -113,8 +115,9 @@ impl BotRuntime {
                                 sleep(Duration::from_secs(4)).await;
                             }
                         },
-                        Err(_) => {
-                            println!("等待Hello信令超时...")
+                        Err(e) => {
+                            println!("等待Hello信令超时: {}", e);
+                            self.state = BotState::GetGateway;
                         }
                     }
                 }
@@ -127,14 +130,11 @@ impl BotRuntime {
 
                     self.state = BotState::GetGateway;
                 }
-
-                BotState::Timeout => {
-                    self.state = BotState::GetGateway;
-                }
             };
         }
     }
 
+    // 获取网关
     async fn try_get_gateway(&mut self) -> Result<(), anyhow::Error> {
         let client = self.http_client.clone();
         let wss_url = get_wss_gateway(client).await?;
@@ -142,6 +142,7 @@ impl BotRuntime {
         Ok(())
     }
 
+    // 连接到WS网关
     async fn connect_wss_server(&mut self) -> Result<(), anyhow::Error> {
         let ws_url = url::Url::parse(self.gateway_url.as_ref().unwrap())?;
         let (wconn, _) = connect_async(ws_url).await?;
@@ -152,6 +153,7 @@ impl BotRuntime {
         todo!()
     }
 
+    // 等待服务器的Hello包，获取其中的session
     async fn wait_hello(&mut self) -> Result<(), anyhow::Error> {
         match self.ws_read {
             Some(ref mut read) => {
@@ -180,12 +182,31 @@ impl BotRuntime {
                         if let Some(Value::Number(code_number)) = code_data {
                             let code = code_number.as_u64().unwrap();
                             // 状态代码是否正确
-                            if code == WS_DATA_CODE_OK {
-                                // 拿出sessio_id
-                                if let Some(Value::String(ref session_id)) = session_id_data {
-                                    self.session_id = Some(session_id.to_owned());
-                                    return Ok(());
+                            match code {
+                                WS_DATA_CODE_OK => {
+                                    // 拿出sessio_id
+                                    if let Some(Value::String(ref session_id)) = session_id_data {
+                                        self.session_id = Some(session_id.to_owned());
+                                        return Ok(());
+                                    }
                                 }
+                                WS_DATA_CODE_MISS_PARAM =>  {
+                                    bail!("缺少参数.")
+                                }
+
+                                WS_DATA_CODE_INVAILD_TOKEN =>  {
+                                    bail!("无效token")
+                                }
+
+                                WS_DATA_CODE_TOKEN_VALID_FAIL => {
+                                    bail!("token 验证失败")
+                                }
+
+                                WS_DATA_CODE_TOKEN_EXPIRE => {
+                                    bail!("token 过期")
+                                },
+                                
+                                _ => {}
                             }
                         }
                     }
@@ -197,6 +218,7 @@ impl BotRuntime {
         }
     }
 
+    // 正常来说，永远不会返回
     async fn work(&mut self) -> Result<(), anyhow::Error> {
         // 心跳定时器，30s一次
         let mut keeplive_interval = tokio::time::interval(Duration::from_secs(30));
@@ -212,10 +234,13 @@ impl BotRuntime {
                 _ = keeplive_interval.tick() =>  {
                     // 每30秒发送一个ping，然后监听pong_rece是否有响应包传来
                     let ping_frame = KookWSFrame::ping(self.sn);
-                    let ping_msg = Message::try_from(ping_frame)?;
+                    let ping_msg = Message::try_from(ping_frame).unwrap();
                     write.send(ping_msg).await?;
                     match timeout(Duration::from_secs(6), pong_rece.recv()).await {
-                        Err(_) => bail!("pong 超时"),
+                        Err(_) => {
+                            self.state = BotState::HeartTimeout;
+                            bail!("pong 超时")
+                        },
                         _ => (),
                     };
                 }
@@ -225,13 +250,29 @@ impl BotRuntime {
                        let frame =  KookWSFrame::try_from(msg)?;
                        match frame.s {
 
+                        WS_MESSAGE => {
+                            // 事件触发, 抽象一个事件钩子出来
+                            todo!()
+                        },
+
                         WS_PONG => {
                             pong_send.send(true).await?;
                         },
 
-                        _ => unreachable!()
+                        WS_RECONNECT =>  {
+                            println!("当前连接失效，准备重新连接...");
+                            self.state = BotState::Reconnect;
+                        },
+
+                        WS_RESUME_ACK => {
+                            println!("连接已恢复.")
+                        },
+
+                        _ => {
+                            println!("未接电话：{}", frame.s);
+                        }
                        };
-                    }
+                    };
                 }
             }
         }

@@ -13,6 +13,12 @@ pub struct Config {
     pub token: String,
 }
 
+impl Config {
+    pub fn bot_conf(&self) -> BotConfig {
+        BotConfig::new(self.token.to_owned())
+    }
+}
+
 impl TryFrom<&Path> for Config {
     type Error = anyhow::Error;
 
@@ -34,5 +40,18 @@ impl TryFrom<&Path> for Config {
         };
 
         Ok(Config { name, token })
+    }
+
+}
+
+
+#[derive(Debug)]
+pub struct BotConfig {
+    pub token: String,
+}
+
+impl BotConfig {
+    pub fn new(token: String) -> Self {
+        Self { token: token }
     }
 }

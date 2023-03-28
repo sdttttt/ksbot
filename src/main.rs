@@ -6,6 +6,7 @@ use crate::runtime::BotRuntime;
 
 mod api;
 mod conf;
+mod hook;
 mod runtime;
 mod ws;
 
@@ -28,7 +29,10 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let conf = Config::try_from(Path::new(&conf_path))?;
 
-    let runtime = BotRuntime::init(conf);
-
+    let mut runtime = BotRuntime::init(conf.bot_conf());
+    match runtime.run().await {
+        Ok(_) => {},
+        Err(e) => bail!("意外退出：{}", e),
+    }
     Ok(())
 }

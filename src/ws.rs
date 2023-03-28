@@ -40,6 +40,14 @@ impl KookWSFrame {
             sn: Some(sn),
         }
     }
+
+    pub fn resume(sn: u64) -> Self {
+        Self {
+            s: WS_RESUME,
+            d: None,
+            sn: Some(sn)
+        }
+    }
 }
 
 impl TryFrom<Message> for KookWSFrame {
@@ -52,7 +60,7 @@ impl TryFrom<Message> for KookWSFrame {
                 Ok(frame)
             }
 
-            _ => bail!("消息类型不是文本类型，TryFrom失败"),
+            _ => bail!("消息类型不是文本类型，这..怎么可能.."),
         }
     }
 }
