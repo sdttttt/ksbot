@@ -6,7 +6,7 @@ use crate::runtime::BotRuntime;
 
 mod api;
 mod conf;
-mod hook;
+mod event_hook;
 mod runtime;
 mod ws;
 

@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Read};
 
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message;
+use flate2::read::ZlibDecoder;
 
 // 信令
 pub const WS_MESSAGE: u8 = 0;
@@ -25,14 +26,44 @@ pub const WS_DATA_CODE_TOKEN_EXPIRE: u64 = 40103;
 pub const WS_DATA_CODE_FIELD: &str = "code";
 pub const WS_DATA_HELLO_SESSION_ID_FIELD: &str = "session_id";
 
-#[derive(Serialize, Deserialize)]
-pub struct KookWSFrame {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KookWSFrame<T> {
     pub s: u8,                             // 信令
-    pub d: Option<HashMap<String, Value>>, // 数据
+    pub d: Option<T>, // 数据
     pub sn: Option<u64>,                   // 会话字段，应该用不上
 }
 
-impl KookWSFrame {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KookChannelMessage {
+    pub id: String,
+    pub channel_name: Option<String>,
+    // 内容
+    pub content: String,
+    // 随机串，与用户消息发送 api 中传的 nonce 保持一致
+    pub nonce: String,
+   //  1:文字消息, 2:图片消息，3:视频消息，4:文件消息， 8:音频消息，9:KMarkdown，10:card 消息，255:系统消息, 其它的暂未开放
+   #[serde(rename = "type")]
+   pub typ: String,
+   // 消息发送时间的毫秒时间戳
+   pub  msg_timestamp: u64,
+   // 频道ID
+   pub target_id: String,
+   // 发送人ID
+   pub author_id: String,
+   // 消息唯一ID
+   pub  msg_id: String,
+    // 不同的消息类型，结构不一致
+   // extra 这个有两个格式，暂时不做
+   pub banner: Option<String>,
+   // 是否机器人
+   pub bot: Option<bool>,
+   // 昵称
+   pub nickname: Option<String>,
+    // 在线
+    pub online: Option<bool>,
+}
+
+impl <T> KookWSFrame<T> {
     pub fn ping(sn: u64) -> Self {
         Self {
             s: WS_PING,
@@ -50,26 +81,36 @@ impl KookWSFrame {
     }
 }
 
-impl TryFrom<Message> for KookWSFrame {
+impl <T: for<'a> Deserialize<'a>> TryFrom<Message> for KookWSFrame<T> {
     type Error = anyhow::Error;
 
-    fn try_from(v: Message) -> Result<Self, Self::Error> {
+    fn try_from(v: Message) -> Result<KookWSFrame<T>, Self::Error> {
         match v {
             Message::Text(text) => {
-                let frame = serde_json::from_str::<Self>(&text)?;
+                let frame = serde_json::from_str::<KookWSFrame<T>>(&text)?;
                 Ok(frame)
             }
 
-            _ => bail!("消息类型不是文本类型，这..怎么可能.."),
+            // 压缩类型
+            Message::Binary(bytes) => {
+                let mut z = ZlibDecoder::new(&bytes[..]);
+                let mut s = String::new();
+                z.read_to_string(&mut s)?;
+                let frame = serde_json::from_str::<KookWSFrame<T>>(&s)?;
+                Ok(frame)
+            }
+
+            _ => bail!("消息类型...这..怎么可能.."),
         }
     }
 }
 
-impl TryFrom<KookWSFrame> for Message {
+impl <T: Serialize> TryFrom<KookWSFrame<T>> for Message {
     type Error = anyhow::Error;
 
-    fn try_from(f: KookWSFrame) -> Result<Self, Self::Error> {
-        let json_str = serde_json::to_string::<KookWSFrame>(&f)?;
+    fn try_from(f: KookWSFrame<T>) -> Result<Self, Self::Error> {
+        let json_str = serde_json::to_string::<KookWSFrame<T>>(&f)?;
+        println!("client send: {}", json_str);
         Ok(Message::Text(json_str))
     }
 }
