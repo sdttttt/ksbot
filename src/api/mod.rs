@@ -1,8 +1,7 @@
 use anyhow::bail;
-use lazy_static::lazy_static;
 use reqwest::{header, Client};
 use serde::Deserialize;
-use std::{collections::HashMap, fmt::format, iter::Map};
+use std::{collections::HashMap};
 pub mod http;
 
 const KOOK_BASE_API: &str = "https://www.kookapp.cn/api/v3";
@@ -15,7 +14,7 @@ struct KookResponse<T = HashMap<String, String>> {
     data: T,
 }
 
-fn kook_api(url: &str) -> String {
+fn prefix_url(url: &str) -> String {
     format!("{}{}", KOOK_BASE_API, url)
 }
 

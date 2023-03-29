@@ -1,8 +1,11 @@
 use std::sync::Arc;
+use crate::{api::http::KookHttpClient, ws::KookChannelMessage};
+use async_trait::async_trait;
 
-trait BotHook {
+#[async_trait]
+pub trait BotEventHook {
     // 准备好了,保存一下这个http_client.
-    fn on_ready(&self, http_client: Arc<reqwest::Client>) -> Result<(), anyhow::Error>;
-    fn on_pong(&self) -> Result<(), anyhow::Error>;
-    fn on_message(&self) -> Result<(), anyhow::Error>;
+   fn on_ready(&mut self, http_client: Arc<KookHttpClient>) -> Result<(), anyhow::Error>;
+   async fn on_pong(&self) -> Result<(), anyhow::Error>;
+   async fn on_message(&self, msg: KookChannelMessage) -> Result<(), anyhow::Error>;
 }

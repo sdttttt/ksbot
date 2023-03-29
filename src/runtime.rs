@@ -1,10 +1,12 @@
 use crate::api::http::KookHttpClient;
 use crate::conf::BotConfig;
+use crate::event_hook::BotEventHook;
 use crate::ws::{
     KookWSFrame, WS_DATA_CODE_FIELD, WS_DATA_CODE_INVAILD_TOKEN, WS_DATA_CODE_MISS_PARAM,
     WS_DATA_CODE_OK, WS_DATA_CODE_TOKEN_EXPIRE, WS_DATA_CODE_TOKEN_VALID_FAIL,
     WS_DATA_HELLO_SESSION_ID_FIELD, WS_MESSAGE, WS_PONG, WS_RECONNECT, WS_RESUME_ACK,KookChannelMessage, WS_HELLO
 };
+use serde::{Deserialize, Serialize};
 use anyhow::bail;
 use flate2::read::ZlibDecoder;
 use futures_util::{
@@ -14,12 +16,20 @@ use futures_util::{
 
 use serde_json::Value;
 use std::collections::HashMap;
-use std::io::Read;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::timeout;
 use tokio::{net::TcpStream, time::sleep};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+
+// 保存在硬盘上的数据
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BotStore {
+    session_id:  Option<String>,
+    sn: u64,
+}
 
 enum BotState {
     GetGateway,     // 初始化：尝试获取ws网关
@@ -30,10 +40,13 @@ enum BotState {
     Reconnect,      // 重新连接：恢复到GetGateway
 }
 
+
 // 机器人运行时，基础设施
-pub struct BotRuntime {
+pub struct BotRuntime <'a> {
     state: BotState,
     conf: BotConfig,
+    store_f: File,
+
     // 网关
     gateway_url: Option<String>,
     // 会话ID
@@ -41,6 +54,8 @@ pub struct BotRuntime {
     sn: u64,
 
     http_client: Arc<KookHttpClient>,
+
+    event_hook: Box<&'a mut dyn BotEventHook>,
 
     /// WebSocket  connection
     ws_write: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
@@ -55,22 +70,41 @@ pub struct BotRuntime {
     heart_channel: (Sender<bool>, Receiver<bool>),
 }
 
-impl BotRuntime {
-    pub fn init(conf: BotConfig) -> Self {
+impl <'a> BotRuntime <'a> {
+    pub fn init(conf: BotConfig, event_hook: &'a mut impl BotEventHook) -> Self {
+        // 文件初始化
         let http_client = Arc::new(KookHttpClient::new(&conf));
+        event_hook.on_ready(http_client.clone()).expect("这也能出错啊？！");    
+        
+        // 以可读可写打开可创建的方式打开机器人持久化文件
+        let mut f = std::fs::File::options().read(true).append(false).write(true).create(true).open(&conf.store_path).unwrap();
+        let mut f_content = String::from("");
+        f.read_to_string(&mut f_content).expect("读取机器人持久化文件错误");
+        
+        let mut session_id: Option<String> = None; 
+        let mut sn = 0;
+
+        if f_content.trim().len() > 0 {
+            let store = serde_json::from_str::<BotStore>(&f_content).expect("序列化机器人持久化文件错误");
+            // 从文件中读取
+            session_id = store.session_id;
+            sn = store.sn;
+        }
 
         Self {
             state: BotState::GetGateway,
+            store_f: f,
             conf,
             http_client,
             gateway_url: None,
-            session_id: None,
-            sn: 0,
+            session_id,
+            sn,
             ws_read: None,
             ws_write: None,
             process_msg_chan: tokio::sync::mpsc::channel::<KookWSFrame<KookChannelMessage>>(64),
             wait_processing_msg_map: HashMap::new(),
             heart_channel: tokio::sync::mpsc::channel::<bool>(1),
+            event_hook: Box::new(event_hook),
         }
     }
 
@@ -203,6 +237,7 @@ impl BotRuntime {
                                 WS_DATA_CODE_OK => {
                                     // 拿出sessio_id
                                     if let Some(Value::String(ref session_id)) = session_id_data {
+                                        println!("session_id: {}", session_id);
                                         self.session_id = Some(session_id.to_owned());
                                         return Ok(());
                                     }
@@ -241,6 +276,9 @@ impl BotRuntime {
         // 心跳定时器，30s一次
         let mut keeplive_interval = tokio::time::interval(Duration::from_secs(30));
 
+        // 机器人持久化定时器，10s一次
+        let mut store_sync_interval = tokio::time::interval(Duration::from_secs(5));
+
         let mut timeout_count = 0;
 
         let read = self.ws_read.as_mut().unwrap();
@@ -265,9 +303,10 @@ impl BotRuntime {
                     };
                 }
 
+                // WS消息接收
                 message = read.next() => {
                     if let Some(Ok(msg)) = message {
-                       let frame =  KookWSFrame::try_from(msg)?;
+                       let frame =  KookWSFrame::<KookChannelMessage>::try_from(msg)?;
                     if let Some(sn) = frame.sn {
                         println!("rece sn: {}", sn);
                         // 第一次进入，机器人没有信令，以收到的第一条服务器的信令为准
@@ -316,13 +355,17 @@ impl BotRuntime {
                 };
                }
 
+               // 处理数据帧
                 frame = self.process_msg_chan.1.recv() => {
                     if let Some(frame) = frame {
                         println!("process msg {:?}", frame);
                          match frame.s {
                             WS_MESSAGE => {
-                                // 事件触发, 抽象一个事件钩子出来
                                 println!("消息来咯。");
+                                if let Some(d) = frame.d{
+                                    println!("{:?}",d);
+                                    self.event_hook.on_message(d).await?;
+                                }
                             },
 
                             WS_PONG => {
@@ -345,7 +388,28 @@ impl BotRuntime {
                            };
                     }
                 }
+
+                // 持久化机器人信息
+                _ = store_sync_interval.tick() =>  {
+                    let store = BotStore::new(self.session_id.to_owned(), self.sn);
+                    match serde_json::to_string(&store) {
+                        Err(e) => bail!("写入出错：{}", e),
+                        Ok(v) => {
+                            if let Err(e) = self.store_f.write_all(v.as_bytes()) {
+                                bail!("写入出错：{}", e);
+                            }
+                        }
+                    }
+                   
+                }
             }
         }
+    }
+}
+
+
+impl BotStore {
+    fn new(session_id: Option<String>, sn: u64) -> Self {
+        Self { session_id, sn }
     }
 }

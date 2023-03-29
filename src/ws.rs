@@ -35,23 +35,23 @@ pub struct KookWSFrame<T> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KookChannelMessage {
-    pub id: String,
+    pub id: Option<String>,
     pub channel_name: Option<String>,
     // 内容
-    pub content: String,
+    pub content: Option<String>,
     // 随机串，与用户消息发送 api 中传的 nonce 保持一致
-    pub nonce: String,
+    pub nonce:Option<String>,
    //  1:文字消息, 2:图片消息，3:视频消息，4:文件消息， 8:音频消息，9:KMarkdown，10:card 消息，255:系统消息, 其它的暂未开放
    #[serde(rename = "type")]
-   pub typ: String,
+   pub typ:Option<u64>,
    // 消息发送时间的毫秒时间戳
-   pub  msg_timestamp: u64,
+   pub  msg_timestamp: Option<u64>,
    // 频道ID
-   pub target_id: String,
+   pub target_id: Option<String>,
    // 发送人ID
-   pub author_id: String,
+   pub author_id: Option<String>,
    // 消息唯一ID
-   pub  msg_id: String,
+   pub  msg_id: Option<String>,
     // 不同的消息类型，结构不一致
    // extra 这个有两个格式，暂时不做
    pub banner: Option<String>,
@@ -96,6 +96,7 @@ impl <T: for<'a> Deserialize<'a>> TryFrom<Message> for KookWSFrame<T> {
                 let mut z = ZlibDecoder::new(&bytes[..]);
                 let mut s = String::new();
                 z.read_to_string(&mut s)?;
+                println!("{}", s);
                 let frame = serde_json::from_str::<KookWSFrame<T>>(&s)?;
                 Ok(frame)
             }

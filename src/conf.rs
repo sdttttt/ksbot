@@ -7,6 +7,7 @@ const MAIN_SECTION: &str = "Main";
 const MAIN_NAME_FIELD: &str = "Name";
 const MAIN_TOKEN_FIELD: &str = "Token";
 
+const BOT_STORE_FILE_PATH: &str = "__bot.json";
 #[derive(Debug)]
 pub struct Config {
     pub name: String,
@@ -15,7 +16,7 @@ pub struct Config {
 
 impl Config {
     pub fn bot_conf(&self) -> BotConfig {
-        BotConfig::new(self.token.to_owned())
+        BotConfig::new(self.token.to_owned(), BOT_STORE_FILE_PATH.to_owned())
     }
 }
 
@@ -48,10 +49,11 @@ impl TryFrom<&Path> for Config {
 #[derive(Debug)]
 pub struct BotConfig {
     pub token: String,
+    pub store_path: String,
 }
 
 impl BotConfig {
-    pub fn new(token: String) -> Self {
-        Self { token: token }
+    pub fn new(token: String,store_path: String ) -> Self {
+        Self { token, store_path }
     }
 }
