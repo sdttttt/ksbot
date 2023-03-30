@@ -42,9 +42,7 @@ impl TryFrom<&Path> for Config {
 
         Ok(Config { name, token })
     }
-
 }
-
 
 #[derive(Debug)]
 pub struct BotConfig {
@@ -53,7 +51,7 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
-    pub fn new(token: String,store_path: String ) -> Self {
+    pub fn new(token: String, store_path: String) -> Self {
         Self { token, store_path }
     }
 }

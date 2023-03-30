@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use crate::{api::http::KookHttpClient, ws::KookEventMessage};
 use crate::event_hook::BotEventHook;
+use crate::{api::http::KookHttpClient, ws::KookEventMessage};
 use async_trait::async_trait;
+use std::sync::Arc;
 
 pub struct RSSEvent {
     http_client: Option<Arc<KookHttpClient>>,
@@ -26,7 +26,13 @@ impl BotEventHook for RSSEvent {
 
     async fn on_message(&self, msg: KookEventMessage) -> Result<(), anyhow::Error> {
         if let Some(ref c) = self.http_client {
-            c.message_create("啊这...".to_owned(), msg.target_id.unwrap(), None, Some(msg.msg_id.unwrap())).await?;
+            c.message_create(
+                "啊这...".to_owned(),
+                msg.target_id.unwrap(),
+                None,
+                Some(msg.msg_id.unwrap()),
+            )
+            .await?;
         }
         Ok(())
     }

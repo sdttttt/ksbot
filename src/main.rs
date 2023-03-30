@@ -4,10 +4,10 @@ use std::{env, path::Path};
 use crate::conf::Config;
 use crate::runtime::BotRuntime;
 
-mod rss_event;
 mod api;
 mod conf;
 mod event_hook;
+mod rss_event;
 mod runtime;
 mod ws;
 
@@ -34,7 +34,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut runtime = BotRuntime::init(conf.bot_conf(), &mut hook);
     match runtime.run().await {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => bail!("意外退出：{}", e),
     }
     Ok(())

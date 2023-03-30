@@ -1,7 +1,7 @@
 use anyhow::bail;
 use reqwest::{header, Client};
 use serde::Deserialize;
-use std::{collections::HashMap};
+use std::collections::HashMap;
 pub mod http;
 
 const KOOK_BASE_API: &str = "https://www.kookapp.cn/api/v3";

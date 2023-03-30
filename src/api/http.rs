@@ -28,21 +28,17 @@ impl KookHttpClient {
             Client::builder().default_headers(headers).build().unwrap()
         };
 
-        Self {
-            c: http_client
-        }
+        Self { c: http_client }
     }
 
     pub async fn get_wss_gateway(&self) -> Result<String, anyhow::Error> {
-        
-
         let url = &prefix_url(GATEWAY_URL);
         println!("get_wss_gateway: {}", url);
         let res = self.c.get(url).send().await?;
-    
+
         let kres = res.json::<KookResponse>().await?;
         is_http_ok(&kres)?;
-    
+
         let gateway_url = kres.data.get(GATEWAY_DATA_KEY);
         match gateway_url {
             Some(url) => Ok(url.clone()),
@@ -50,23 +46,35 @@ impl KookHttpClient {
         }
     }
 
-
-    pub async fn message_create(&self,  content: String, target_id: String, typ: Option<usize>, quote: Option<String>) -> Result<(), anyhow::Error> {
-
+    pub async fn message_create(
+        &self,
+        content: String,
+        target_id: String,
+        typ: Option<usize>,
+        quote: Option<String>,
+    ) -> Result<(), anyhow::Error> {
         #[derive(Debug, Serialize)]
         struct Request {
             content: String,
             target_id: String,
             #[serde(rename = "type")]
             typ: Option<usize>,
-            quote: Option<String>
+            quote: Option<String>,
         }
 
         let req = Request {
-             content, target_id, typ, quote
+            content,
+            target_id,
+            typ,
+            quote,
         };
 
-        let res = self.c.post (prefix_url( MESSAGE_CREATE_URL)).json(&req).send().await?;
+        let res = self
+            .c
+            .post(prefix_url(MESSAGE_CREATE_URL))
+            .json(&req)
+            .send()
+            .await?;
 
         let kres = res.json::<KookResponse>().await?;
         is_http_ok(&kres)?;
@@ -74,5 +82,3 @@ impl KookHttpClient {
         Ok(())
     }
 }
-
-
