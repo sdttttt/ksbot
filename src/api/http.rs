@@ -1,6 +1,6 @@
 use anyhow::bail;
 use reqwest::{header, Client};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::conf::BotConfig;
 
@@ -11,6 +11,8 @@ const GATEWAY_DATA_KEY: &str = "url";
 
 const MESSAGE_CREATE_URL: &str = "/message/create";
 const MESSAGE_TYPE_KMAEKDOWN: usize = 9;
+
+const USER_ME_URL: &str = "/user/me";
 
 pub struct KookHttpClient {
     c: reqwest::Client,
@@ -81,4 +83,39 @@ impl KookHttpClient {
 
         Ok(())
     }
+
+    pub async fn user_me(&self) -> Result<UserMe, anyhow::Error> {
+        let res = self.c.get(prefix_url(USER_ME_URL)).send().await?;
+        let kres = res.json::<KookResponse<UserMe>>().await?;
+        is_http_ok(&kres)?;
+        Ok(kres.data)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserMe {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "username")]
+    pub username: String,
+    #[serde(rename = "identify_num")]
+    pub identify_num: String,
+    #[serde(rename = "online")]
+    pub online: bool,
+    #[serde(rename = "status")]
+    pub status: i64,
+    #[serde(rename = "avatar")]
+    pub avatar: String,
+    #[serde(rename = "bot")]
+    pub bot: bool,
+    #[serde(rename = "mobile_verified")]
+    pub mobile_verified: bool,
+    #[serde(rename = "client_id")]
+    pub client_id: String,
+    #[serde(rename = "mobile_prefix")]
+    pub mobile_prefix: String,
+    #[serde(rename = "mobile")]
+    pub mobile: String,
+    #[serde(rename = "invited_count")]
+    pub invited_count: i64,
 }

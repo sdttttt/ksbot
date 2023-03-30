@@ -22,7 +22,7 @@ fn not_compress(url: &str) -> String {
     format!("{}?compress=0", url)
 }
 
-fn is_http_ok(kres: &KookResponse) -> Result<(), anyhow::Error> {
+fn is_http_ok<T>(kres: &KookResponse<T>) -> Result<(), anyhow::Error> {
     if kres.code != KOOK_OK_CODE {
         bail!(kres.message.to_owned())
     }

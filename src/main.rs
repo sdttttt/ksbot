@@ -31,9 +31,9 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let conf = Config::try_from(Path::new(&conf_path))?;
 
-    let mut hook = rss_event::RSSEvent::new();
+    let mut hook = rss_event::KsbotRuntime::new();
 
-    let mut runtime = BotRuntime::init(conf.bot_conf(), &mut hook);
+    let mut runtime = BotRuntime::init(conf.bot_conf(), &mut hook).await;
     match runtime.run().await {
         Ok(_) => {}
         Err(e) => bail!("意外退出：{}", e),

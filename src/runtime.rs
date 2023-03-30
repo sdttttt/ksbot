@@ -75,11 +75,13 @@ pub struct BotRuntime<'a> {
 }
 
 impl<'a> BotRuntime<'a> {
-    pub fn init(conf: BotConfig, event_hook: &'a mut impl BotEventHook) -> Self {
+    pub async fn init(conf: BotConfig, event_hook: &'a mut impl BotEventHook) -> BotRuntime {
         // 文件初始化
         let http_client = Arc::new(KookHttpClient::new(&conf));
+
         event_hook
-            .on_ready(http_client.clone())
+            .on_work(http_client.clone())
+            .await
             .expect("这也能出错啊？！");
 
         // 以可读可写打开可创建的方式打开机器人持久化文件
@@ -224,7 +226,6 @@ impl<'a> BotRuntime<'a> {
 
     // 正常来说，永远不会返回
     async fn work(&mut self) -> Result<(), anyhow::Error> {
-        println!("work");
         // 心跳定时器，30s一次
         let mut keeplive_interval = tokio::time::interval(Duration::from_secs(30));
 
@@ -269,6 +270,7 @@ impl<'a> BotRuntime<'a> {
                             &WS_PONG => {
                                  println!("pong");
                                  self.heart_channel.0.send(true).await?;
+                                 self.event_hook.on_pong().await?;
                              },
 
                              &WS_RECONNECT =>  {
@@ -317,12 +319,10 @@ impl<'a> BotRuntime<'a> {
                     loop {
                     // 下一条信令编号
                     let next_sn = self.sn + 1;
-                    println!("处理待处理的信令消息: sn = {}", next_sn);
                     match self.wait_processing_msg_map.remove(&next_sn) {
                         Some(f) => {
                             match &f.s {
                                 &WS_MESSAGE => {
-                                    println!("消息来咯。");
                                     // 重新对帧进行序列化，变成事件消息格式
                                     let event_frame = KookWSFrame::<KookEventMessage>::try_from(f).unwrap();
                                     self.process_event_chan.0.send(event_frame.d.unwrap()).await.expect("传递消息出错，这也行？？");
@@ -335,6 +335,7 @@ impl<'a> BotRuntime<'a> {
                         },
                         // 没有的话直接退出，继续熬
                         None => {
+                            println!("待处理的消息数量: {}",self.wait_processing_msg_map.len());
                             break;
                         },
                     }
