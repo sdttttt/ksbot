@@ -1,6 +1,7 @@
 use anyhow::bail;
 use reqwest::{header, Client};
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::HashMap;
 pub mod http;
 
@@ -8,7 +9,7 @@ const KOOK_BASE_API: &str = "https://www.kookapp.cn/api/v3";
 const KOOK_OK_CODE: usize = 0;
 
 #[derive(Debug, Deserialize)]
-struct KookResponse<T = HashMap<String, String>> {
+struct KookResponse<T = Value> {
     code: usize,
     message: String,
     data: T,

@@ -1,13 +1,13 @@
 use std::str::FromStr;
 
-use fast_xml::{events::Event, Reader};
+use quick_xml::{events::Event, Reader};
 use serde::{Deserialize, Serialize};
 
 use super::buf::BufPool;
 use super::item::ChannelItem;
 use super::utils::attrs_get_str;
 use super::utils::{parse_atom_link, AtomLink, NumberData, TextOrCData};
-use super::{FromXmlWithReader, FromXmlWithStr, SkipThisElement};
+use super::{FromXmlWithBufRead, FromXmlWithReader, FromXmlWithStr, SkipThisElement};
 
 use super::RSS_VERSION_AVAILABLE;
 
@@ -56,10 +56,18 @@ impl FromXmlWithStr for RSSChannel {
     /// Returns:
     ///
     /// A `fast_xml::Result<RSSChannel>`
-    fn from_xml_with_str(bufs: &BufPool, text: &str) -> fast_xml::Result<RSSChannel> {
+    fn from_xml_with_str(bufs: &BufPool, text: &str) -> quick_xml::Result<RSSChannel> {
         let mut reader = Reader::from_str(text);
 
         Self::from_xml_with_reader(bufs, &mut reader)
+    }
+}
+
+impl FromXmlWithBufRead for RSSChannel {
+    fn from_xml_with_buf<B: std::io::BufRead>(buf_read: B) -> quick_xml::Result<Self> {
+        let bufs: BufPool = Default::default();
+        let mut reader = Reader::from_reader(buf_read);
+        Self::from_xml_with_reader(&bufs, &mut reader)
     }
 }
 
@@ -80,7 +88,7 @@ impl FromXmlWithReader for RSSChannel {
     fn from_xml_with_reader<B: std::io::BufRead>(
         bufs: &BufPool,
         reader: &mut Reader<B>,
-    ) -> fast_xml::Result<Self> {
+    ) -> quick_xml::Result<Self> {
         let mut version = None;
         let mut title = None;
         let mut description = None;
@@ -221,7 +229,7 @@ impl FromXmlWithReader for RSSChannel {
 }
 
 impl FromStr for RSSChannel {
-    type Err = fast_xml::Error;
+    type Err = quick_xml::Error;
 
     /// It takes a string, parses it as XML, and returns a `fast_xml::Result<RSSChannel>`
     ///
@@ -232,7 +240,7 @@ impl FromStr for RSSChannel {
     /// Returns:
     ///
     /// A Result<RSSChannel, fast_xml::Error>
-    fn from_str(text: &str) -> fast_xml::Result<RSSChannel> {
+    fn from_str(text: &str) -> quick_xml::Result<RSSChannel> {
         let bufs = BufPool::new(16, 2048);
 
         Self::from_xml_with_str(&bufs, text)
@@ -263,7 +271,7 @@ impl FromXmlWithReader for ChannelImage {
     fn from_xml_with_reader<B: std::io::BufRead>(
         bufs: &BufPool,
         reader: &mut Reader<B>,
-    ) -> fast_xml::Result<Self> {
+    ) -> quick_xml::Result<Self> {
         let mut url = None;
 
         let mut buf = bufs.pop();

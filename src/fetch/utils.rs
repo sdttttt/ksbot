@@ -1,4 +1,4 @@
-use fast_xml::{
+use quick_xml::{
     events::{attributes::Attributes, Event},
     Reader,
 };
@@ -34,7 +34,7 @@ impl FromXmlWithReader for TextOrCData {
     fn from_xml_with_reader<B: std::io::BufRead>(
         bufs: &BufPool,
         reader: &mut Reader<B>,
-    ) -> fast_xml::Result<Self> {
+    ) -> quick_xml::Result<Self> {
         let mut buf = bufs.pop();
 
         let mut text = None;
@@ -68,7 +68,7 @@ impl FromXmlWithReader for NumberData {
     fn from_xml_with_reader<B: std::io::BufRead>(
         bufs: &BufPool,
         reader: &mut Reader<B>,
-    ) -> fast_xml::Result<Self> {
+    ) -> quick_xml::Result<Self> {
         let mut buf = bufs.pop();
         let mut number = None;
 
@@ -78,7 +78,7 @@ impl FromXmlWithReader for NumberData {
                     let number_str = reader.decode(e)?;
                     number = Some(match number_str.parse::<usize>() {
                         Err(_) => {
-                            return Err(fast_xml::Error::UnexpectedToken(
+                            return Err(quick_xml::Error::UnexpectedToken(
                                 (format!("{} to number failed!", number_str)).to_string(),
                             ))
                         }
@@ -90,7 +90,7 @@ impl FromXmlWithReader for NumberData {
                     let number_str = reader.decode(e)?;
                     number = Some(match number_str.parse::<usize>() {
                         Err(_) => {
-                            return Err(fast_xml::Error::UnexpectedToken(
+                            return Err(quick_xml::Error::UnexpectedToken(
                                 (format!("{} to number failed!", number_str)).to_string(),
                             ))
                         }
@@ -126,7 +126,7 @@ pub fn attrs_get_str<'a, B: std::io::BufRead>(
     reader: &Reader<B>,
     attrs: Attributes<'a>,
     key: &'a str,
-) -> fast_xml::Result<Option<String>> {
+) -> quick_xml::Result<Option<String>> {
     let mut value = None;
 
     for attribute in attrs {
@@ -162,7 +162,7 @@ pub fn attrs_get_str<'a, B: std::io::BufRead>(
 pub fn parse_atom_link<'a, B: std::io::BufRead>(
     reader: &mut Reader<B>,
     attributes: Attributes<'a>,
-) -> fast_xml::Result<Option<AtomLink<'a>>> {
+) -> quick_xml::Result<Option<AtomLink<'a>>> {
     let mut href = None;
     let mut rel = None;
     for attribute in attributes {
@@ -213,7 +213,7 @@ pub fn reader_get_sub_node_str<B: std::io::BufRead>(
     bufs: &BufPool,
     tag: &str,
     origin_text: &str,
-) -> fast_xml::Result<String> {
+) -> quick_xml::Result<String> {
     let mut buf = bufs.pop();
 
     let start_position = reader.buffer_position();

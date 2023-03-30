@@ -5,6 +5,8 @@ use anyhow::Ok;
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use log::*;
+
 pub struct KsbotRuntime {
     http_client: Option<Arc<KookHttpClient>>,
     me_info: Option<UserMe>,
@@ -30,7 +32,7 @@ impl KsbotRuntime {
 impl BotEventHook for KsbotRuntime {
     async fn on_work(&mut self, http_client: Arc<KookHttpClient>) -> Result<(), anyhow::Error> {
         let me = http_client.user_me().await?;
-        println!("{:?}", me);
+        info!("{:?}", me);
         self.me_info = Some(me);
         self.http_client = Some(http_client);
         Ok(())
@@ -41,6 +43,17 @@ impl BotEventHook for KsbotRuntime {
     }
 
     async fn on_message(&self, msg: KookEventMessage) -> Result<(), anyhow::Error> {
+        if let Some(bot) = msg.bot {
+            if bot {
+                info!("Bot消息，忽略...");
+                return Ok(());
+            }
+        }
+        info!(
+            "channel_name = {:?}, nickname = {:?}, content = {:?}, type = {:?}, msg_timestrap = {:?} ",
+            msg.channel_name, msg.nickname, msg.content, msg.typ, msg.msg_timestamp
+        );
+
         let client = self.http_client.as_ref().unwrap();
         let content = &*msg.content.unwrap_or_else(|| "".to_owned());
         let mut reply = Default::default();

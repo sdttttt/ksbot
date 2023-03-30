@@ -2,6 +2,7 @@ use std::{collections::HashMap, io::Read};
 
 use anyhow::bail;
 use flate2::read::ZlibDecoder;
+use log::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message;
@@ -15,22 +16,22 @@ pub const WS_RESUME: u8 = 4;
 pub const WS_RECONNECT: u8 = 5;
 pub const WS_RESUME_ACK: u8 = 6;
 
-// 数据中的状态代码
-pub const WS_DATA_CODE_OK: u64 = 0;
-pub const WS_DATA_CODE_MISS_PARAM: u64 = 40100;
-pub const WS_DATA_CODE_INVAILD_TOKEN: u64 = 40101;
-pub const WS_DATA_CODE_TOKEN_VALID_FAIL: u64 = 40102;
-pub const WS_DATA_CODE_TOKEN_EXPIRE: u64 = 40103;
+//// 数据中的状态代码
+//pub const WS_DATA_CODE_OK: u64 = 0;
+//pub const WS_DATA_CODE_MISS_PARAM: u64 = 40100;
+//pub const WS_DATA_CODE_INVAILD_TOKEN: u64 = 40101;
+//pub const WS_DATA_CODE_TOKEN_VALID_FAIL: u64 = 40102;
+//pub const WS_DATA_CODE_TOKEN_EXPIRE: u64 = 40103;
 
-// 数据字段
-pub const WS_DATA_CODE_FIELD: &str = "code";
-pub const WS_DATA_HELLO_SESSION_ID_FIELD: &str = "session_id";
+//// 数据字段
+//pub const WS_DATA_CODE_FIELD: &str = "code";
+//pub const WS_DATA_HELLO_SESSION_ID_FIELD: &str = "session_id";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KookWSFrame<T> {
     pub s: u8,           // 信令
     pub d: Option<T>,    // 数据
-    pub sn: Option<u64>, // 会话字段，应该用不上
+    pub sn: Option<u64>, // 消息计数ID和服务端保持一致
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,6 +88,7 @@ impl<T: for<'a> Deserialize<'a>> TryFrom<Message> for KookWSFrame<T> {
     fn try_from(v: Message) -> Result<KookWSFrame<T>, Self::Error> {
         match v {
             Message::Text(text) => {
+                trace!("revc: {}", text);
                 let frame = serde_json::from_str::<KookWSFrame<T>>(&text)?;
                 Ok(frame)
             }
@@ -96,12 +98,20 @@ impl<T: for<'a> Deserialize<'a>> TryFrom<Message> for KookWSFrame<T> {
                 let mut z = ZlibDecoder::new(&bytes[..]);
                 let mut s = String::new();
                 z.read_to_string(&mut s)?;
-                println!("{}", s);
+                debug!("revc: {}", s);
                 let frame = serde_json::from_str::<KookWSFrame<T>>(&s)?;
                 Ok(frame)
             }
 
-            _ => bail!("消息类型...这..怎么可能.."),
+            Message::Ping(_) | Message::Pong(_) => Ok(KookWSFrame {
+                ..Default::default()
+            }),
+
+            Message::Close(_) => {
+                bail!("要关闭连接了");
+            }
+
+            _ => unreachable!(),
         }
     }
 }
@@ -111,7 +121,7 @@ impl<T: Serialize> TryFrom<KookWSFrame<T>> for Message {
 
     fn try_from(f: KookWSFrame<T>) -> Result<Self, Self::Error> {
         let json_str = serde_json::to_string::<KookWSFrame<T>>(&f)?;
-        println!("client send: {}", json_str);
+        debug!("send: {}", json_str);
         Ok(Message::Text(json_str))
     }
 }
@@ -126,5 +136,15 @@ impl TryFrom<KookWSFrame<Value>> for KookWSFrame<KookEventMessage> {
             s: value.s,
             d: Some(kem),
         })
+    }
+}
+
+impl<T> Default for KookWSFrame<T> {
+    fn default() -> Self {
+        Self {
+            s: Default::default(),
+            d: Default::default(),
+            sn: Default::default(),
+        }
     }
 }

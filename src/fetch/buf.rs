@@ -31,9 +31,15 @@ impl BufPool {
             .pop()
             .unwrap_or_else(|| Vec::with_capacity(self.capacity));
         Buffer {
-            pool: self.pool.clone(),
+            pool: self.pool.to_owned(),
             inner: buf,
         }
+    }
+}
+
+impl Default for BufPool {
+    fn default() -> Self {
+        BufPool::new(4, 512)
     }
 }
 

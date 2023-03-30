@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+
 use anyhow::bail;
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 
 use crate::conf::BotConfig;
+use log::*;
 
 use super::{is_http_ok, prefix_url, KookResponse};
 
@@ -26,7 +29,7 @@ impl KookHttpClient {
                 "Authorization",
                 format!("Bot {}", conf.token).parse().unwrap(),
             );
-            println!("header: {:?}", headers);
+            info!("header: {:?}", headers);
             Client::builder().default_headers(headers).build().unwrap()
         };
 
@@ -35,10 +38,10 @@ impl KookHttpClient {
 
     pub async fn get_wss_gateway(&self) -> Result<String, anyhow::Error> {
         let url = &prefix_url(GATEWAY_URL);
-        println!("get_wss_gateway: {}", url);
+        info!("get_wss_gateway: {}", url);
         let res = self.c.get(url).send().await?;
 
-        let kres = res.json::<KookResponse>().await?;
+        let kres = res.json::<KookResponse<HashMap<String, String>>>().await?;
         is_http_ok(&kres)?;
 
         let gateway_url = kres.data.get(GATEWAY_DATA_KEY);

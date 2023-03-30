@@ -2,18 +2,16 @@ use crate::api::http::KookHttpClient;
 use crate::conf::BotConfig;
 use crate::event_hook::BotEventHook;
 use crate::ws::{
-    KookEventMessage, KookWSFrame, WS_DATA_CODE_FIELD, WS_DATA_CODE_INVAILD_TOKEN,
-    WS_DATA_CODE_MISS_PARAM, WS_DATA_CODE_OK, WS_DATA_CODE_TOKEN_EXPIRE,
-    WS_DATA_CODE_TOKEN_VALID_FAIL, WS_DATA_HELLO_SESSION_ID_FIELD, WS_HELLO, WS_MESSAGE, WS_PONG,
-    WS_RECONNECT, WS_RESUME_ACK,
+    KookEventMessage, KookWSFrame, WS_HELLO, WS_MESSAGE, WS_PONG, WS_RECONNECT, WS_RESUME_ACK,
 };
 use anyhow::bail;
-use flate2::read::ZlibDecoder;
 use futures_util::{
     stream::{SplitSink, SplitStream, StreamExt},
     SinkExt,
 };
 use serde::{Deserialize, Serialize};
+
+use log::*;
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -136,17 +134,17 @@ impl<'a> BotRuntime<'a> {
                 BotState::GetGateway | BotState::Reconnect => match self.try_get_gateway().await {
                     Ok(_) => {
                         self.state = BotState::ConnectGateway;
-                        println!("获取网关成功，尝试连接...")
+                        info!("获取网关成功，尝试连接...")
                     }
                     Err(e) => {
-                        println!("获取网关失败: {}", e);
+                        warn!("获取网关失败: {}", e);
                         sleep(Duration::from_secs(4)).await;
                     }
                 },
 
                 BotState::Resume => {
                     self.state = BotState::ConnectGateway;
-                    println!("尝试恢复连接...");
+                    warn!("尝试恢复连接...");
                     self.try_get_resume_gateway().await?;
                 }
 
@@ -156,12 +154,12 @@ impl<'a> BotRuntime<'a> {
                             self.state = BotState::Working;
                             // 成功后，重置连接网关计数
                             connect_gateway_count = 0;
-                            println!("连接网关成功，等待服务器响应.")
+                            info!("连接网关成功，等待服务器响应.")
                         }
                         Err(e) => {
-                            println!("连接网关失败: {}", e);
+                            error!("连接网关失败: {}", e);
                             if connect_gateway_count > 2 {
-                                println!("连接网关已到最大重试次数, 重新获取网关.");
+                                error!("连接网关已到最大重试次数, 重新获取网关.");
                                 self.state = BotState::GetGateway;
                             }
                             connect_gateway_count += 1;
@@ -172,7 +170,7 @@ impl<'a> BotRuntime<'a> {
 
                 BotState::Working => {
                     match self.work().await {
-                        Err(e) => println!("工作出错: {:?}", e),
+                        Err(e) => error!("工作出错: {:?}", e),
                         _ => (),
                     }
 
@@ -184,14 +182,14 @@ impl<'a> BotRuntime<'a> {
 
     // 获取网关
     async fn try_get_gateway(&mut self) -> Result<(), anyhow::Error> {
-        println!("try_get_gateway");
+        info!("try_get_gateway");
         let wss_url = self.http_client.get_wss_gateway().await?;
         self.gateway_url = Some(wss_url);
         Ok(())
     }
 
     async fn try_get_resume_gateway(&mut self) -> Result<(), anyhow::Error> {
-        println!("try_resume");
+        info!("try_resume");
         let wss_url = format!(
             "{}&resume=1&sn={}&session_id={}",
             self.gateway_url.to_owned().unwrap(),
@@ -205,7 +203,7 @@ impl<'a> BotRuntime<'a> {
 
     // 连接到WS网关
     async fn connect_wss_server(&mut self) -> Result<(), anyhow::Error> {
-        println!("connect_wss_server");
+        info!("connect_wss_server");
         // 如果当前状态是Resume, 网关优先使用gateway_resume_url
         let gateway_url = {
             if let Some(resume) = self.gateway_resume_url.to_owned() {
@@ -214,7 +212,7 @@ impl<'a> BotRuntime<'a> {
                 self.gateway_url.to_owned().unwrap()
             }
         };
-        println!("gateway_url: {}", gateway_url);
+        info!("gateway_url: {}", gateway_url);
         let ws_url = url::Url::parse(&gateway_url)?;
         let (wconn, _) = connect_async(ws_url).await?;
         let (write, read) = wconn.split();
@@ -244,6 +242,7 @@ impl<'a> BotRuntime<'a> {
                     let ping_frame = KookWSFrame::<HashMap<String, Value>>::ping(self.sn);
                     let ping_msg = Message::try_from(ping_frame).unwrap();
                     write.send(ping_msg).await?;
+                    info!("client -> ping -> server");
                     match timeout(Duration::from_secs(6), self.heart_channel.1.recv()).await {
                         Err(_) => {
                             // 最多超时6次，六次之后进入超时状态
@@ -259,8 +258,22 @@ impl<'a> BotRuntime<'a> {
                 // WS消息接收
                 message = read.next() => {
                     if let Some(Ok(msg)) = message {
-                       let frame =  KookWSFrame::<Value>::try_from(msg)?;
-
+                       let frame = match  KookWSFrame::<Value>::try_from(msg) {
+                            Ok(f) => {
+                                // 无效的消息
+                                if f.s == u8::default()
+                                && f.d == Default::default()
+                                && f.sn == Default::default() {
+                                    debug!("无效的消息");
+                                    continue;
+                                }
+                                f
+                            },
+                            Err(e) => {
+                                error!("{}", e);
+                                continue;
+                            },
+                       };
 
                     match frame.sn {
 
@@ -268,13 +281,13 @@ impl<'a> BotRuntime<'a> {
                     None => {
                         match &frame.s {
                             &WS_PONG => {
-                                 println!("pong");
+                                 info!("client <- pong <- server ");
                                  self.heart_channel.0.send(true).await?;
                                  self.event_hook.on_pong().await?;
                              },
 
                              &WS_RECONNECT =>  {
-                                 println!("当前连接失效，准备重新连接...");
+                                 error!("当前连接失效，准备重新连接...");
                                  // KookDocs: 任何时候，收到 reconnect 包，应该将当前消息队列，sn等全部清空，然后回到第 1 步，否则可能会有消息错乱等各种问题。
                                  self.sn = 0;
                                  self.session_id = None;
@@ -284,16 +297,16 @@ impl<'a> BotRuntime<'a> {
                              },
 
                              &WS_RESUME_ACK | &WS_HELLO => {
-                                 println!("接收到Hello/ResumeAck.");
+                                 info!("client <- hello/resume_ack <- server");
                                  let v = frame.d.unwrap();
                                  if let Value::String(ref session_id) = v["session_id"] {
                                      self.session_id = Some(session_id.to_owned());
-                                     println!("会话: {}", session_id);
+                                     info!("会话: {}", session_id);
                                  }
                              },
 
                              _ => {
-                                 println!("未接电话：{:?}", frame);
+                                 info!("未接电话：{:?}", frame);
                              }
                             };
                     }
@@ -301,7 +314,7 @@ impl<'a> BotRuntime<'a> {
                      // 根据官方文档，只有事件帧会有信令，
                        // 带信令的数据帧都装进wait_processing_msg_map等待后续处理
                        Some(sn) => {
-                        println!("rece sn: {}", sn);
+                        info!("rece sn: {}", sn);
                   // 小于机器人的信令，说明是处理过的消息，丢弃
                   if self.sn >= sn {
                        continue;
@@ -328,14 +341,14 @@ impl<'a> BotRuntime<'a> {
                                     self.process_event_chan.0.send(event_frame.d.unwrap()).await.expect("传递消息出错，这也行？？");
                                 },
                                 _ => {
-                                    println!("未接电话：{:?}", f);
+                                    warn!("未接电话：{:?}", f);
                                 }
                                };
                             self.sn = next_sn;
                         },
                         // 没有的话直接退出，继续熬
                         None => {
-                            println!("待处理的消息数量: {}",self.wait_processing_msg_map.len());
+                            info!("待处理的消息数量: {}",self.wait_processing_msg_map.len());
                             break;
                         },
                     }

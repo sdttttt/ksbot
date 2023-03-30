@@ -1,16 +1,26 @@
 mod buf;
 mod feed;
+pub mod http;
 mod item;
 mod utils;
 
+use std::io::BufRead;
+use std::str::FromStr;
+
+use quick_xml::events::Event as XmlEvent;
+use quick_xml::Reader as XmlReader;
+
+use self::buf::BufPool;
+use self::feed::RSSChannel;
+
 pub const RSS_VERSION_AVAILABLE: &str = "2.0";
 
-pub fn parse_rss_channel(rss_text: &str) -> RSSChannel {
-    RSSChannel::from_str(rss_text).unwrap()
+pub trait FromXmlWithStr: Sized {
+    fn from_xml_with_str(bufs: &BufPool, text: &str) -> quick_xml::Result<Self>;
 }
 
-pub trait FromXmlWithStr: Sized {
-    fn from_xml_with_str(bufs: &BufPool, text: &str) -> fast_xml::Result<Self>;
+pub trait FromXmlWithBufRead: Sized {
+    fn from_xml_with_buf<B: std::io::BufRead>(bufs: B) -> quick_xml::Result<Self>;
 }
 
 /// A trait that is implemented by the structs that are used to parse the XML.
@@ -19,20 +29,10 @@ pub trait FromXmlWithReader: Sized {
     fn from_xml_with_reader<B: BufRead>(
         bufs: &BufPool,
         reader: &mut XmlReader<B>,
-    ) -> fast_xml::Result<Self>;
+    ) -> quick_xml::Result<Self>;
 }
 
 struct SkipThisElement;
-
-use std::io::BufRead;
-use std::str::FromStr;
-
-use fast_xml::events::Event as XmlEvent;
-use fast_xml::Reader as XmlReader;
-
-use self::buf::BufPool;
-use self::feed::RSSChannel;
-
 impl FromXmlWithReader for SkipThisElement {
     /// "Skip the current element and all its children."
     ///
@@ -51,7 +51,7 @@ impl FromXmlWithReader for SkipThisElement {
     fn from_xml_with_reader<B: BufRead>(
         bufs: &BufPool,
         reader: &mut XmlReader<B>,
-    ) -> fast_xml::Result<Self> {
+    ) -> quick_xml::Result<Self> {
         let mut buf = bufs.pop();
         let mut depth = 1usize;
         loop {

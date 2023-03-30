@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use fast_xml::Result;
-use fast_xml::{events::Event, Reader};
+use quick_xml::Result;
+use quick_xml::{events::Event, Reader};
 use serde::{Deserialize, Serialize};
 
 use super::buf::BufPool;
@@ -42,7 +42,7 @@ impl FromXmlWithStr for ChannelItem {
     /// Returns:
     ///
     /// A ChannelItem
-    fn from_xml_with_str(bufs: &BufPool, text: &str) -> fast_xml::Result<ChannelItem> {
+    fn from_xml_with_str(bufs: &BufPool, text: &str) -> quick_xml::Result<ChannelItem> {
         let mut reader = Reader::from_str(text);
 
         Self::from_xml_with_reader(bufs, &mut reader)
@@ -64,7 +64,7 @@ impl FromXmlWithReader for ChannelItem {
     fn from_xml_with_reader<B: std::io::BufRead>(
         bufs: &BufPool,
         reader: &mut Reader<B>,
-    ) -> fast_xml::Result<Self> {
+    ) -> quick_xml::Result<Self> {
         let mut title = None;
         let mut description = None;
         let mut pub_date = None;
@@ -143,7 +143,7 @@ impl ChannelItem {
 }
 
 impl FromStr for ChannelItem {
-    type Err = fast_xml::Error;
+    type Err = quick_xml::Error;
 
     fn from_str(text: &str) -> Result<ChannelItem> {
         let bufs = BufPool::new(64, 8192);
