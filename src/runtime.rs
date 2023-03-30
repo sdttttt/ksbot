@@ -1,6 +1,6 @@
 use crate::api::http::KookHttpClient;
 use crate::conf::BotConfig;
-use crate::event_hook::BotEventHook;
+use crate::runtime_event::BotEventHook;
 use crate::ws::{
     KookEventMessage, KookWSFrame, WS_HELLO, WS_MESSAGE, WS_PONG, WS_RECONNECT, WS_RESUME_ACK,
 };
@@ -353,19 +353,17 @@ impl<'a> BotRuntime<'a> {
                         },
                     }
                 }
-
-
                 };
                }
 
                // 处理事件数据帧
                 event_op = self.process_event_chan.1.recv() => {
                     if let Some(event) = event_op {
-                            self.event_hook.on_message(event).await?;
+                            if let Err(e) = self.event_hook.on_message(event).await {
+                                error!("事件调用错误：{}", e);
+                            }
                         }
                     }
-
-
 
                 // 持久化机器人状态
                 _ = store_sync_interval.tick() =>  {

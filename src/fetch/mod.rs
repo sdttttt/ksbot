@@ -5,7 +5,6 @@ mod item;
 mod utils;
 
 use std::io::BufRead;
-use std::str::FromStr;
 
 use quick_xml::events::Event as XmlEvent;
 use quick_xml::Reader as XmlReader;

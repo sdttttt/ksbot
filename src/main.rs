@@ -11,10 +11,10 @@ use crate::runtime::BotRuntime;
 use simplelog::*;
 mod api;
 mod conf;
-mod event_hook;
 mod fetch;
 mod rss_event;
 mod runtime;
+mod runtime_event;
 mod ws;
 
 #[tokio::main]

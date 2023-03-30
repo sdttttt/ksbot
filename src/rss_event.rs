@@ -1,5 +1,5 @@
 use crate::api::http::UserMe;
-use crate::event_hook::BotEventHook;
+use crate::runtime_event::BotEventHook;
 use crate::{api::http::KookHttpClient, ws::KookEventMessage};
 use anyhow::Ok;
 use async_trait::async_trait;
