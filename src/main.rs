@@ -7,6 +7,7 @@ use crate::runtime::BotRuntime;
 mod api;
 mod conf;
 mod event_hook;
+mod fetch;
 mod rss_event;
 mod runtime;
 mod ws;

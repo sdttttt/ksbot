@@ -18,3 +18,4 @@ url = "2.0.0"
 flate2 = "1.0.24"
 async-trait = "0.1.57"
 sled = "0.34.7"
+fast-xml = { version = "0.23.1", features = ["serialize"] }
