@@ -5,7 +5,7 @@ mod utils;
 
 pub const RSS_VERSION_AVAILABLE: &str = "2.0";
 
-pub fn get_feed_meta(rss_text: &str) -> RSSChannel {
+pub fn parse_rss_channel(rss_text: &str) -> RSSChannel {
     RSSChannel::from_str(rss_text).unwrap()
 }
 
