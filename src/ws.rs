@@ -26,7 +26,7 @@ pub const WS_DATA_CODE_TOKEN_EXPIRE: u64 = 40103;
 pub const WS_DATA_CODE_FIELD: &str = "code";
 pub const WS_DATA_HELLO_SESSION_ID_FIELD: &str = "session_id";
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug,Serialize, Deserialize)]
 pub struct KookWSFrame<T> {
     pub s: u8,                             // 信令
     pub d: Option<T>, // 数据
@@ -34,7 +34,7 @@ pub struct KookWSFrame<T> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct KookChannelMessage {
+pub struct KookEventMessage {
     pub id: Option<String>,
     pub channel_name: Option<String>,
     // 内容
@@ -81,6 +81,8 @@ impl <T> KookWSFrame<T> {
     }
 }
 
+
+
 impl <T: for<'a> Deserialize<'a>> TryFrom<Message> for KookWSFrame<T> {
     type Error = anyhow::Error;
 
@@ -113,5 +115,18 @@ impl <T: Serialize> TryFrom<KookWSFrame<T>> for Message {
         let json_str = serde_json::to_string::<KookWSFrame<T>>(&f)?;
         println!("client send: {}", json_str);
         Ok(Message::Text(json_str))
+    }
+}
+
+impl TryFrom<KookWSFrame<Value>> for KookWSFrame<KookEventMessage>  {
+    type Error = anyhow::Error;
+
+    fn try_from(value: KookWSFrame<Value>) -> Result<KookWSFrame<KookEventMessage>, Self::Error> {
+        let kem = serde_json::from_value::<KookEventMessage>(value.d.unwrap())?;
+        Ok(KookWSFrame {
+            sn: value.sn,
+            s: value.s,
+            d: Some(kem),
+        })
     }
 }

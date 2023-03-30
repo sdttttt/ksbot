@@ -2,22 +2,23 @@ use crate::api::http::KookHttpClient;
 use crate::conf::BotConfig;
 use crate::event_hook::BotEventHook;
 use crate::ws::{
-    KookWSFrame, WS_DATA_CODE_FIELD, WS_DATA_CODE_INVAILD_TOKEN, WS_DATA_CODE_MISS_PARAM,
-    WS_DATA_CODE_OK, WS_DATA_CODE_TOKEN_EXPIRE, WS_DATA_CODE_TOKEN_VALID_FAIL,
-    WS_DATA_HELLO_SESSION_ID_FIELD, WS_MESSAGE, WS_PONG, WS_RECONNECT, WS_RESUME_ACK,KookChannelMessage, WS_HELLO
+    KookEventMessage, KookWSFrame, WS_DATA_CODE_FIELD, WS_DATA_CODE_INVAILD_TOKEN,
+    WS_DATA_CODE_MISS_PARAM, WS_DATA_CODE_OK, WS_DATA_CODE_TOKEN_EXPIRE,
+    WS_DATA_CODE_TOKEN_VALID_FAIL, WS_DATA_HELLO_SESSION_ID_FIELD, WS_HELLO, WS_MESSAGE, WS_PONG,
+    WS_RECONNECT, WS_RESUME_ACK,
 };
-use serde::{Deserialize, Serialize};
 use anyhow::bail;
 use flate2::read::ZlibDecoder;
 use futures_util::{
     stream::{SplitSink, SplitStream, StreamExt},
     SinkExt,
 };
+use serde::{Deserialize, Serialize};
 
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::timeout;
@@ -27,28 +28,31 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 // 保存在硬盘上的数据
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BotStore {
-    session_id:  Option<String>,
+    session_id: String,
     sn: u64,
+    gateway: String,
 }
 
 enum BotState {
     GetGateway,     // 初始化：尝试获取ws网关
     ConnectGateway, // 已经获取网关：尝试连接上网关
-    WaitHello,      // 等待服务端Hello，包
-    Working,        // 工作中：保持心跳
+    Working,        // 工作中
     HeartTimeout,   // 心跳超时：恢复到ConnectGateway
     Reconnect,      // 重新连接：恢复到GetGateway
+    Resume,         // 恢复连接：一般是机器人重启
 }
 
-
 // 机器人运行时，基础设施
-pub struct BotRuntime <'a> {
+pub struct BotRuntime<'a> {
     state: BotState,
     conf: BotConfig,
     store_f: File,
 
     // 网关
     gateway_url: Option<String>,
+    // 恢复用
+    gateway_resume_url: Option<String>,
+
     // 会话ID
     session_id: Option<String>,
     sn: u64,
@@ -62,46 +66,59 @@ pub struct BotRuntime <'a> {
     ws_read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
 
     // 消息处理信道
-    process_msg_chan: (Sender<KookWSFrame<KookChannelMessage>>, Receiver<KookWSFrame<KookChannelMessage>>),
+    process_event_chan: (Sender<KookEventMessage>, Receiver<KookEventMessage>),
     // 待处理的消息，存放乱序消息
-    wait_processing_msg_map: HashMap<u64, KookWSFrame<KookChannelMessage>>,
+    wait_processing_msg_map: HashMap<u64, KookWSFrame<Value>>,
 
     /// 心跳信道
     heart_channel: (Sender<bool>, Receiver<bool>),
 }
 
-impl <'a> BotRuntime <'a> {
+impl<'a> BotRuntime<'a> {
     pub fn init(conf: BotConfig, event_hook: &'a mut impl BotEventHook) -> Self {
         // 文件初始化
         let http_client = Arc::new(KookHttpClient::new(&conf));
-        event_hook.on_ready(http_client.clone()).expect("这也能出错啊？！");    
-        
-        // 以可读可写打开可创建的方式打开机器人持久化文件
-        let mut f = std::fs::File::options().read(true).append(false).write(true).create(true).open(&conf.store_path).unwrap();
-        let mut f_content = String::from("");
-        f.read_to_string(&mut f_content).expect("读取机器人持久化文件错误");
-        
-        let mut session_id: Option<String> = None; 
-        let mut sn = 0;
+        event_hook
+            .on_ready(http_client.clone())
+            .expect("这也能出错啊？！");
 
-        if f_content.trim().len() > 0 {
-            let store = serde_json::from_str::<BotStore>(&f_content).expect("序列化机器人持久化文件错误");
+        // 以可读可写打开可创建的方式打开机器人持久化文件
+        let mut f = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&conf.store_path)
+            .unwrap();
+        let mut f_content = String::from("");
+        f.read_to_string(&mut f_content)
+            .expect("读取机器人持久化文件错误");
+
+        let mut session_id: Option<String> = None;
+        let mut sn = 0;
+        let mut gateway_url: Option<String> = None;
+        let mut state = BotState::GetGateway;
+        if f_content.trim().is_empty() == false {
+            let store =
+                serde_json::from_str::<BotStore>(&f_content).expect("序列化机器人持久化文件错误");
             // 从文件中读取
-            session_id = store.session_id;
+            session_id = Some(store.session_id);
             sn = store.sn;
+            gateway_url = Some(store.gateway);
+            state = BotState::Resume;
         }
 
         Self {
-            state: BotState::GetGateway,
+            state,
             store_f: f,
             conf,
             http_client,
-            gateway_url: None,
+            gateway_url,
+            gateway_resume_url: None,
             session_id,
             sn,
             ws_read: None,
             ws_write: None,
-            process_msg_chan: tokio::sync::mpsc::channel::<KookWSFrame<KookChannelMessage>>(64),
+            process_event_chan: tokio::sync::mpsc::channel::<KookEventMessage>(64),
             wait_processing_msg_map: HashMap::new(),
             heart_channel: tokio::sync::mpsc::channel::<bool>(1),
             event_hook: Box::new(event_hook),
@@ -125,10 +142,16 @@ impl <'a> BotRuntime <'a> {
                     }
                 },
 
+                BotState::Resume => {
+                    self.state = BotState::ConnectGateway;
+                    println!("尝试恢复连接...");
+                    self.try_get_resume_gateway().await?;
+                }
+
                 BotState::ConnectGateway | BotState::HeartTimeout => {
                     match self.connect_wss_server().await {
                         Ok(_) => {
-                            self.state = BotState::WaitHello;
+                            self.state = BotState::Working;
                             // 成功后，重置连接网关计数
                             connect_gateway_count = 0;
                             println!("连接网关成功，等待服务器响应.")
@@ -141,28 +164,6 @@ impl <'a> BotRuntime <'a> {
                             }
                             connect_gateway_count += 1;
                             sleep(Duration::from_secs(4)).await;
-                        }
-                    }
-                }
-
-                BotState::WaitHello => {
-                    let wait_hello_f = self.wait_hello();
-                    // 设定超时时间，必须在6秒之内完成wait_hello
-                    match timeout(Duration::from_secs(6), wait_hello_f).await {
-                        Ok(result) => match result {
-                            Ok(_) => {
-                                self.state = BotState::Working;
-                                println!("接受完成Hello包，开始工作.");
-                            }
-                            Err(e) => {
-                                println!("接收Hello信令失败: {}", e);
-                                self.state = BotState::GetGateway;
-                                sleep(Duration::from_secs(4)).await;
-                            }
-                        },
-                        Err(e) => {
-                            println!("等待Hello信令超时: {}", e);
-                            self.state = BotState::GetGateway;
                         }
                     }
                 }
@@ -183,91 +184,42 @@ impl <'a> BotRuntime <'a> {
     async fn try_get_gateway(&mut self) -> Result<(), anyhow::Error> {
         println!("try_get_gateway");
         let wss_url = self.http_client.get_wss_gateway().await?;
-        println!("wss_url: {}", wss_url);
         self.gateway_url = Some(wss_url);
+        Ok(())
+    }
+
+    async fn try_get_resume_gateway(&mut self) -> Result<(), anyhow::Error> {
+        println!("try_resume");
+        let wss_url = format!(
+            "{}&resume=1&sn={}&session_id={}",
+            self.gateway_url.to_owned().unwrap(),
+            self.sn,
+            self.session_id.to_owned().unwrap()
+        );
+
+        self.gateway_resume_url = Some(wss_url);
         Ok(())
     }
 
     // 连接到WS网关
     async fn connect_wss_server(&mut self) -> Result<(), anyhow::Error> {
         println!("connect_wss_server");
-        let ws_url = url::Url::parse(self.gateway_url.as_ref().unwrap())?;
+        // 如果当前状态是Resume, 网关优先使用gateway_resume_url
+        let gateway_url = {
+            if let Some(resume) = self.gateway_resume_url.to_owned() {
+                resume
+            } else {
+                self.gateway_url.to_owned().unwrap()
+            }
+        };
+        println!("gateway_url: {}", gateway_url);
+        let ws_url = url::Url::parse(&gateway_url)?;
         let (wconn, _) = connect_async(ws_url).await?;
         let (write, read) = wconn.split();
 
         self.ws_read = Some(read);
         self.ws_write = Some(write);
         Ok(())
-    }
-
-    // 等待服务器的Hello包，获取其中的session
-    async fn wait_hello(&mut self) -> Result<(), anyhow::Error> {
-        println!("wait_hello");
-        match self.ws_read {
-            Some(ref mut read) => {
-                let msg = read.next().await;
-                // 获得下一条消息，必须是文本类型
-                if let Some(Ok(Message::Binary(ref bytes))) = msg {
-                    let mut z = ZlibDecoder::new(&bytes[..]);
-                    let mut s = String::new();
-                    z.read_to_string(&mut s)?;
-                    // 反序列化一下
-                    let frame: KookWSFrame<HashMap<String, Value>> = serde_json::from_str(&s)?;
-                    // 信令位是否为Hello，否则就出错
-                    if frame.s == WS_HELLO {
-                        // 获取消息中的SN，如果有的话
-                        if let Some(sn) = frame.sn {
-                            self.sn = sn;
-                        }
-
-                        // 如果是WS_HELLO 理论上肯定有数据，这里直接展开
-                        let frame_data = frame.d.unwrap();
-
-                        // 获取数据中状态代码
-                        let code_data = frame_data.get(&WS_DATA_CODE_FIELD.to_owned());
-
-                        // 获取session_id 代码
-                        let session_id_data =
-                            frame_data.get(&WS_DATA_HELLO_SESSION_ID_FIELD.to_owned());
-
-                        if let Some(Value::Number(code_number)) = code_data {
-                            let code = code_number.as_u64().unwrap();
-                            // 状态代码是否正确
-                            match code {
-                                WS_DATA_CODE_OK => {
-                                    // 拿出sessio_id
-                                    if let Some(Value::String(ref session_id)) = session_id_data {
-                                        println!("session_id: {}", session_id);
-                                        self.session_id = Some(session_id.to_owned());
-                                        return Ok(());
-                                    }
-                                }
-                                WS_DATA_CODE_MISS_PARAM => {
-                                    bail!("缺少参数.")
-                                }
-
-                                WS_DATA_CODE_INVAILD_TOKEN => {
-                                    bail!("无效token")
-                                }
-
-                                WS_DATA_CODE_TOKEN_VALID_FAIL => {
-                                    bail!("token 验证失败")
-                                }
-
-                                WS_DATA_CODE_TOKEN_EXPIRE => {
-                                    bail!("token 过期")
-                                }
-
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-                bail!("不正确的服务器信令: {:?}", &msg)
-            }
-
-            None => bail!("没有接受到来自服务器的Hello信令."),
-        }
     }
 
     // 正常来说，永远不会返回
@@ -306,44 +258,79 @@ impl <'a> BotRuntime <'a> {
                 // WS消息接收
                 message = read.next() => {
                     if let Some(Ok(msg)) = message {
-                       let frame =  KookWSFrame::<KookChannelMessage>::try_from(msg)?;
-                    if let Some(sn) = frame.sn {
-                        println!("rece sn: {}", sn);
-                        // 第一次进入，机器人没有信令，以收到的第一条服务器的信令为准
-                        if self.sn == 0 {
-                            self.sn = sn
-                        }
+                       let frame =  KookWSFrame::<Value>::try_from(msg)?;
 
-                        // 小于机器人的信令，说明是处理过的消息，丢弃
-                        if self.sn > sn {
-                             continue;
-                        }
 
-                        // 将信令加入待处理Map
-                        self.wait_processing_msg_map.insert(sn, frame);
-                    } else {
-                        println!("rece no sn msg.");
-                        // 没有信令的消息，也是有可能的
-                        match self.process_msg_chan.0.send(frame).await {
-                            Err(e) => bail!("消息传递错误：{}",e),
-                            Ok(_) => {
-                                println!("消息已传递");
-                            },
-                        };
+                    match frame.sn {
+
+                    // 处理不带信令的数据帧
+                    None => {
+                        match &frame.s {
+                            &WS_PONG => {
+                                 println!("pong");
+                                 self.heart_channel.0.send(true).await?;
+                             },
+
+                             &WS_RECONNECT =>  {
+                                 println!("当前连接失效，准备重新连接...");
+                                 // KookDocs: 任何时候，收到 reconnect 包，应该将当前消息队列，sn等全部清空，然后回到第 1 步，否则可能会有消息错乱等各种问题。
+                                 self.sn = 0;
+                                 self.session_id = None;
+                                 self.gateway_resume_url = None;
+                                 self.wait_processing_msg_map.clear();
+                                 self.state = BotState::Reconnect;
+                             },
+
+                             &WS_RESUME_ACK | &WS_HELLO => {
+                                 println!("接收到Hello/ResumeAck.");
+                                 let v = frame.d.unwrap();
+                                 if let Value::String(ref session_id) = v["session_id"] {
+                                     self.session_id = Some(session_id.to_owned());
+                                     println!("会话: {}", session_id);
+                                 }
+                             },
+
+                             _ => {
+                                 println!("未接电话：{:?}", frame);
+                             }
+                            };
                     }
+
+                     // 根据官方文档，只有事件帧会有信令，
+                       // 带信令的数据帧都装进wait_processing_msg_map等待后续处理
+                       Some(sn) => {
+                        println!("rece sn: {}", sn);
+                  // 小于机器人的信令，说明是处理过的消息，丢弃
+                  if self.sn >= sn {
+                       continue;
+                  }
+
+                  // 将信令加入待处理Map
+                  if self.sn < sn {
+                      self.wait_processing_msg_map.insert(sn, frame);
+                  }
+              }
+                }
+
 
                     // 处理待处理的信令
                     loop {
                     // 下一条信令编号
                     let next_sn = self.sn + 1;
-                    println!("检查sn = {} 是否存在", next_sn);
+                    println!("处理待处理的信令消息: sn = {}", next_sn);
                     match self.wait_processing_msg_map.remove(&next_sn) {
                         Some(f) => {
-                            match self.process_msg_chan.0.send(f).await {
-                                Err(e) => bail!("消息传递错误：{}",e),
-                                _ => {},
-                            };
-                            // 更新信令
+                            match &f.s {
+                                &WS_MESSAGE => {
+                                    println!("消息来咯。");
+                                    // 重新对帧进行序列化，变成事件消息格式
+                                    let event_frame = KookWSFrame::<KookEventMessage>::try_from(f).unwrap();
+                                    self.process_event_chan.0.send(event_frame.d.unwrap()).await.expect("传递消息出错，这也行？？");
+                                },
+                                _ => {
+                                    println!("未接电话：{:?}", f);
+                                }
+                               };
                             self.sn = next_sn;
                         },
                         // 没有的话直接退出，继续熬
@@ -352,64 +339,50 @@ impl <'a> BotRuntime <'a> {
                         },
                     }
                 }
+
+
                 };
                }
 
-               // 处理数据帧
-                frame = self.process_msg_chan.1.recv() => {
-                    if let Some(frame) = frame {
-                        println!("process msg {:?}", frame);
-                         match frame.s {
-                            WS_MESSAGE => {
-                                println!("消息来咯。");
-                                if let Some(d) = frame.d{
-                                    println!("{:?}",d);
-                                    self.event_hook.on_message(d).await?;
-                                }
-                            },
-
-                            WS_PONG => {
-                                println!("pong! live ;)");
-                                self.heart_channel.0.send(true).await?;
-                            },
-
-                            WS_RECONNECT =>  {
-                                println!("当前连接失效，准备重新连接...");
-                                self.state = BotState::Reconnect;
-                            },
-
-                            WS_RESUME_ACK => {
-                                println!("连接已恢复.")
-                            },
-
-                            _ => {
-                                println!("未接电话：{}", frame.s);
-                            }
-                           };
+               // 处理事件数据帧
+                event_op = self.process_event_chan.1.recv() => {
+                    if let Some(event) = event_op {
+                            self.event_hook.on_message(event).await?;
+                        }
                     }
-                }
 
-                // 持久化机器人信息
+
+
+                // 持久化机器人状态
                 _ = store_sync_interval.tick() =>  {
-                    let store = BotStore::new(self.session_id.to_owned(), self.sn);
+                    let store = BotStore::new(
+                        self.session_id.to_owned().unwrap_or_else(|| "".to_owned()),
+                        self.sn,
+                        self.gateway_url.to_owned().unwrap_or_else(|| "".to_owned())
+                    );
                     match serde_json::to_string(&store) {
                         Err(e) => bail!("写入出错：{}", e),
                         Ok(v) => {
+                            let _ = self.store_f.rewind();
                             if let Err(e) = self.store_f.write_all(v.as_bytes()) {
                                 bail!("写入出错：{}", e);
                             }
+                            self.store_f.sync_data()?;
                         }
                     }
-                   
+
                 }
             }
         }
     }
 }
 
-
 impl BotStore {
-    fn new(session_id: Option<String>, sn: u64) -> Self {
-        Self { session_id, sn }
+    fn new(session_id: String, sn: u64, gateway: String) -> Self {
+        Self {
+            session_id,
+            sn,
+            gateway,
+        }
     }
 }
