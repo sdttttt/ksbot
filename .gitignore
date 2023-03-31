@@ -1,4 +1,4 @@
 /target
 *.ini
-__bot.json
 *.log
+__*
