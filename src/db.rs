@@ -111,6 +111,24 @@ impl Database {
     }
 
     /// 该订阅源的频道列表
+    pub fn channel_feed_list(&self, channel: &str) -> Result<Vec<String>, DatabaseError> {
+        let chan_feed_key = &*channel_feed_key(channel);
+        // 该订阅源的频道列表
+        let chan_feeds_ivec = self
+            .inner
+            .get(chan_feed_key)?
+            .unwrap_or_else(|| IVec::from(vec![]));
+        // 转成 str
+        let chan_feeds_str = if chan_feeds_ivec.is_empty() {
+            return Ok(vec![]);
+        } else {
+            utils::ivec_to_str(chan_feeds_ivec)
+        };
+
+        Ok(utils::split_vec_filter_empty(chan_feeds_str, ITEM_PAT))
+    }
+
+    /// 该订阅源的频道列表
     pub fn feed_channel_list(&self, feed: &str) -> Result<Vec<String>, DatabaseError> {
         let feed_chan_key = &*feed_channel_key(feed);
         // 该订阅源的频道列表
