@@ -110,7 +110,7 @@ impl Database {
         }
     }
 
-    /// 该订阅源的频道列表
+    /// 该频道的订阅列表
     pub fn channel_feed_list(&self, channel: &str) -> Result<Vec<String>, DatabaseError> {
         let chan_feed_key = &*channel_feed_key(channel);
         // 该订阅源的频道列表
@@ -209,8 +209,7 @@ impl Database {
     // 移除订阅源
     #[inline]
     fn remove_feed(&self, feed: &str) -> Result<(), DatabaseError> {
-        let feed_chan_key = &*feed_channel_key(feed);
-        self.inner.remove(feed_chan_key)?;
+        self.inner.remove(&*feed_key(feed))?;
         Ok(())
     }
 }
