@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Read};
+use std::io::Read;
 
 use anyhow::bail;
 use flate2::read::ZlibDecoder;
@@ -103,9 +103,12 @@ impl<T: for<'a> Deserialize<'a>> TryFrom<Message> for KookWSFrame<T> {
                 Ok(frame)
             }
 
-            Message::Ping(_) | Message::Pong(_) => Ok(KookWSFrame {
-                ..Default::default()
-            }),
+            Message::Ping(_) | Message::Pong(_) => {
+                debug!("native ping/pong");
+                Ok(KookWSFrame {
+                    ..Default::default()
+                })
+            }
 
             Message::Close(_) => {
                 bail!("要关闭连接了");

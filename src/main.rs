@@ -6,6 +6,7 @@ use std::{env, path::Path};
 use log::*;
 
 use crate::conf::Config;
+use crate::db::init_db;
 use crate::fetch::http::init_rss_client;
 use crate::runtime::BotRuntime;
 use simplelog::*;
@@ -16,6 +17,7 @@ mod fetch;
 mod rss_event;
 mod runtime;
 mod runtime_event;
+mod utils;
 mod ws;
 
 #[tokio::main]
@@ -38,6 +40,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let conf = parse_conf()?;
 
     init_rss_client(None);
+    init_db(None);
 
     let mut hook = rss_event::KsbotRuntime::new();
     let mut runtime = BotRuntime::init(conf.bot_conf(), &mut hook).await;

@@ -1,5 +1,5 @@
 use crate::api::http::KookHttpClient;
-use crate::conf::BotConfig;
+use crate::conf::{BotConfig, BOT_STORE_FILE_PATH};
 use crate::runtime_event::BotEventHook;
 use crate::ws::{
     KookEventMessage, KookWSFrame, WS_HELLO, WS_MESSAGE, WS_PONG, WS_RECONNECT, WS_RESUME_ACK,
@@ -99,8 +99,8 @@ impl<'a> BotRuntime<'a> {
         let mut gateway_url: Option<String> = None;
         let mut state = BotState::GetGateway;
         if f_content.trim().is_empty() == false {
-            let store = serde_json::from_str::<BotStore>(&f_content).expect(
-                "序列化机器人持久化文件错误, 如果反复出现该错误可删除该文件。(默认的持久化文件名：__bot.json)",
+            let store = serde_json::from_str::<BotStore>(&f_content).expect(&format!(
+                "序列化机器人持久化文件错误, 如果反复出现该错误可删除该文件。(默认的持久化文件名：{})", BOT_STORE_FILE_PATH)
             );
             // 从文件中读取
             session_id = Some(store.session_id);
