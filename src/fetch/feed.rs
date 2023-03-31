@@ -15,34 +15,34 @@ use super::RSS_VERSION_AVAILABLE;
 #[serde(rename = "rss")]
 pub struct RSSChannel {
     #[serde(skip)]
-    version: Option<String>,
+    pub version: Option<String>,
 
-    title: Option<String>,
+    pub title: Option<String>,
 
-    description: Option<String>,
+    pub description: Option<String>,
 
-    url: Option<String>,
+    pub url: Option<String>,
 
     #[serde(rename = "atomLink")]
-    atom_link: Option<String>,
+    pub atom_link: Option<String>,
 
-    language: Option<String>,
+    pub language: Option<String>,
 
     #[serde(rename = "webMaster")]
-    web_master: Option<String>,
+    pub web_master: Option<String>,
 
-    generator: Option<String>,
+    pub generator: Option<String>,
 
     #[serde(rename = "lastBuildDate")]
-    last_build_date: Option<String>,
+    pub last_build_date: Option<String>,
 
-    ttl: Option<usize>,
+    pub ttl: Option<usize>,
 
-    image: Option<ChannelImage>,
+    pub image: Option<ChannelImage>,
 
-    posts: Vec<ChannelItem>,
+    pub posts: Vec<ChannelItem>,
 
-    copyright: Option<String>,
+    pub copyright: Option<String>,
 }
 
 impl FromXmlWithStr for RSSChannel {
@@ -247,20 +247,6 @@ impl FromStr for RSSChannel {
     }
 }
 
-impl RSSChannel {
-    pub fn version(&self) -> String {
-        self.version.as_deref().unwrap_or("").to_string()
-    }
-
-    pub fn is_specification(&self) -> bool {
-        self.version.as_deref().unwrap_or("") == RSS_VERSION_AVAILABLE
-    }
-
-    pub fn posts_len(&self) -> usize {
-        self.posts.len()
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename = "image")]
 pub struct ChannelImage {
@@ -293,5 +279,24 @@ impl FromXmlWithReader for ChannelImage {
         }
 
         Ok(Self { url })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::io::Cursor;
+
+    use super::*;
+
+    #[test]
+    fn encoding() {
+        let s: &[u8] = include_bytes!("../../test/data/rss_2.0.xml");
+        let r = RSSChannel::from_xml_with_buf(Cursor::new(s)).unwrap();
+        assert_eq!(r.title, Some("rss_2.0.channel.title".to_owned()));
+        assert_eq!(r.url, Some("rss_2.0.channel.link".to_owned()));
+        assert_eq!(
+            r.description,
+            Some("rss_2.0.channel.description".to_owned())
+        );
     }
 }

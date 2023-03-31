@@ -11,6 +11,7 @@ use crate::runtime::BotRuntime;
 use simplelog::*;
 mod api;
 mod conf;
+mod db;
 mod fetch;
 mod rss_event;
 mod runtime;

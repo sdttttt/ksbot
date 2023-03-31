@@ -8,7 +8,7 @@ use super::{feed::RSSChannel, FromXmlWithBufRead};
 static RESP_SIZE_LIMIT: OnceCell<u64> = OnceCell::new();
 static CLIENT: OnceCell<reqwest::Client> = OnceCell::new();
 
-const DEFAULT_RESP_SIZE_LIMIT: u64 = 1024 * 8;
+const DEFAULT_RESP_SIZE_LIMIT: u64 = 1024 * 1024 * 4; // 4MB
 
 #[derive(Error, Debug)]
 pub enum FeedError {
@@ -56,7 +56,9 @@ pub async fn pull_feed(url: &str) -> Result<RSSChannel, FeedError> {
 pub fn init_rss_client(max_feed_size: Option<u64>) {
     let client_builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(16))
-        .redirect(reqwest::redirect::Policy::limited(5));
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .user_agent("Mozilla/5.0")
+        .danger_accept_invalid_certs(true);
 
     let client = client_builder.build().unwrap();
 
@@ -64,4 +66,21 @@ pub fn init_rss_client(max_feed_size: Option<u64>) {
     RESP_SIZE_LIMIT
         .set(max_feed_size.unwrap_or_else(|| DEFAULT_RESP_SIZE_LIMIT))
         .expect("RESP_SIZE_LIMIT already initialized");
+}
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    fn setup() {
+        init_rss_client(None);
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn test_pull_feed_for_yystv() {
+        setup();
+        let rss_chan = pull_feed("https://www.yystv.cn/rss/feed").await.unwrap();
+        assert_eq!("游研社", rss_chan.title.unwrap());
+    }
 }

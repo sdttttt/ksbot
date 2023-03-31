@@ -57,19 +57,20 @@ pub struct BotRuntime<'a> {
 
     http_client: Arc<KookHttpClient>,
 
+    // 运行时对外暴露的狗子
     event_hook: Box<&'a mut dyn BotEventHook>,
 
     /// WebSocket  connection
     ws_write: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
     ws_read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
 
-    // 消息处理信道
+    // 事件消息处理信道
     process_event_chan: (Sender<KookEventMessage>, Receiver<KookEventMessage>),
-    // 待处理的消息，存放乱序消息
-    wait_processing_msg_map: HashMap<u64, KookWSFrame<Value>>,
-
+    // 待处理的事件消息
+    // TODO: 使用Map不太好，后续重构为其他更加适合的有序数据结构来存放事件消息
+    wait_process_event_map: HashMap<u64, KookWSFrame<Value>>,
     /// 心跳信道
-    heart_channel: (Sender<bool>, Receiver<bool>),
+    heart_chan: (Sender<bool>, Receiver<bool>),
 }
 
 impl<'a> BotRuntime<'a> {
@@ -80,7 +81,7 @@ impl<'a> BotRuntime<'a> {
         event_hook
             .on_work(http_client.clone())
             .await
-            .expect("这也能出错啊？！");
+            .expect("on_work 事件调用出错");
 
         // 以可读可写打开可创建的方式打开机器人持久化文件
         let mut f = std::fs::File::options()
@@ -88,8 +89,8 @@ impl<'a> BotRuntime<'a> {
             .write(true)
             .create(true)
             .open(&conf.store_path)
-            .unwrap();
-        let mut f_content = String::from("");
+            .expect("文件(创建/打开)出错");
+        let mut f_content = "".to_owned();
         f.read_to_string(&mut f_content)
             .expect("读取机器人持久化文件错误");
 
@@ -98,8 +99,9 @@ impl<'a> BotRuntime<'a> {
         let mut gateway_url: Option<String> = None;
         let mut state = BotState::GetGateway;
         if f_content.trim().is_empty() == false {
-            let store =
-                serde_json::from_str::<BotStore>(&f_content).expect("序列化机器人持久化文件错误");
+            let store = serde_json::from_str::<BotStore>(&f_content).expect(
+                "序列化机器人持久化文件错误, 如果反复出现该错误可删除该文件。(默认的持久化文件名：__bot.json)",
+            );
             // 从文件中读取
             session_id = Some(store.session_id);
             sn = store.sn;
@@ -119,8 +121,8 @@ impl<'a> BotRuntime<'a> {
             ws_read: None,
             ws_write: None,
             process_event_chan: tokio::sync::mpsc::channel::<KookEventMessage>(64),
-            wait_processing_msg_map: HashMap::new(),
-            heart_channel: tokio::sync::mpsc::channel::<bool>(1),
+            wait_process_event_map: HashMap::new(),
+            heart_chan: tokio::sync::mpsc::channel::<bool>(1),
             event_hook: Box::new(event_hook),
         }
     }
@@ -243,7 +245,7 @@ impl<'a> BotRuntime<'a> {
                     let ping_msg = Message::try_from(ping_frame).unwrap();
                     write.send(ping_msg).await?;
                     info!("client -> ping -> server");
-                    match timeout(Duration::from_secs(6), self.heart_channel.1.recv()).await {
+                    match timeout(Duration::from_secs(6), self.heart_chan.1.recv()).await {
                         Err(_) => {
                             // 最多超时6次，六次之后进入超时状态
                             if timeout_count >= 6  {
@@ -282,7 +284,7 @@ impl<'a> BotRuntime<'a> {
                         match &frame.s {
                             &WS_PONG => {
                                  info!("client <- pong <- server ");
-                                 self.heart_channel.0.send(true).await?;
+                                 self.heart_chan.0.send(true).await?;
                                  self.event_hook.on_pong().await?;
                              },
 
@@ -292,7 +294,7 @@ impl<'a> BotRuntime<'a> {
                                  self.sn = 0;
                                  self.session_id = None;
                                  self.gateway_resume_url = None;
-                                 self.wait_processing_msg_map.clear();
+                                 self.wait_process_event_map.clear();
                                  self.state = BotState::Reconnect;
                              },
 
@@ -322,7 +324,7 @@ impl<'a> BotRuntime<'a> {
 
                   // 将信令加入待处理Map
                   if self.sn < sn {
-                      self.wait_processing_msg_map.insert(sn, frame);
+                      self.wait_process_event_map.insert(sn, frame);
                   }
               }
                 }
@@ -332,7 +334,7 @@ impl<'a> BotRuntime<'a> {
                     loop {
                     // 下一条信令编号
                     let next_sn = self.sn + 1;
-                    match self.wait_processing_msg_map.remove(&next_sn) {
+                    match self.wait_process_event_map.remove(&next_sn) {
                         Some(f) => {
                             match &f.s {
                                 &WS_MESSAGE => {
@@ -348,7 +350,7 @@ impl<'a> BotRuntime<'a> {
                         },
                         // 没有的话直接退出，继续熬
                         None => {
-                            info!("待处理的消息数量: {}",self.wait_processing_msg_map.len());
+                            info!("待处理的消息数量: {}",self.wait_process_event_map.len());
                             break;
                         },
                     }
