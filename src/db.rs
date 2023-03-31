@@ -1,5 +1,5 @@
 use log::*;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use sled::transaction::TransactionError;
 use sled::IVec;
 use std::collections::hash_map::DefaultHasher;
@@ -13,13 +13,12 @@ use crate::utils;
 const DEFAULT_DATABASE_PATH: &str = "__bot.db";
 const ITEM_PAT: char = ';';
 
-static DB: OnceCell<Database> = OnceCell::new();
 static HASHER: Lazy<Mutex<DefaultHasher>> = Lazy::new(|| Mutex::new(DefaultHasher::new()));
 
 #[derive(Debug, Error)]
-enum DatabaseError {
+pub enum DatabaseError {
     #[error("订阅源检查出错: {0}")]
-    Feed(#[from] fetch::http::FeedError),
+    Feed(#[from] fetch::FeedError),
 
     #[error("数据库内部错误: {0}")]
     Inner(#[from] sled::Error),
@@ -29,16 +28,31 @@ enum DatabaseError {
 }
 
 #[derive(Debug)]
-struct Database {
+pub struct Database {
     inner: sled::Db,
 }
 
 impl Database {
+    pub fn new(path: Option<String>) -> Self {
+        let path = path.unwrap_or_else(|| DEFAULT_DATABASE_PATH.to_owned());
+
+        let inner = sled::Config::default()
+            .flush_every_ms(Some(4 * 1000))
+            .path(path)
+            .open()
+            .expect(&format!(
+                "数据库初始化出错, 反复出现此错误可以尝试删除数据库文件。(默认: {})",
+                DEFAULT_DATABASE_PATH
+            ));
+
+        Database { inner }
+    }
+
     // 频道订阅
-    pub async fn channel_subscribed(&self, channel: &str, feed: &str) -> Result<(), DatabaseError> {
+    pub fn channel_subscribed(&self, channel: &str, feed: &str) -> Result<(), DatabaseError> {
         // 没有该订阅源先加入订阅列表
         if !self.contains_feed(feed)? {
-            self.insert_feed(feed).await?;
+            self.insert_feed(feed)?;
         }
 
         self.chan_feed_operaiton(channel, |feeds| {
@@ -79,9 +93,7 @@ impl Database {
         Ok(())
     }
 
-    async fn insert_feed(&self, feed: &str) -> Result<(), DatabaseError> {
-        fetch::http::pull_feed(feed).await?;
-        info!("checked ok: {}", feed);
+    fn insert_feed(&self, feed: &str) -> Result<(), DatabaseError> {
         self.inner.insert(&*feed_key(feed), feed)?;
         Ok(())
     }
@@ -114,24 +126,6 @@ impl Database {
         };
 
         Ok(utils::split_vec_filter_empty(feed_chans_str, ITEM_PAT))
-    }
-
-    /// 添加 订阅源和频道之间的映射
-    fn append_feed_channel_map(&self, channel: &str, feed: &str) -> Result<(), DatabaseError> {
-        let chan_feed_key = &*channel_feed_key(channel);
-
-        self.feed_chan_operaiton(feed, |v| {
-            // 加入频道
-            v.push(channel.to_owned());
-        })?;
-
-        self.chan_feed_operaiton(channel, |v| {
-            // 加入订阅源
-            v.push(hash(feed))
-        })?;
-
-        info!("channel: {} <=> feed: {}", channel, feed);
-        Ok(())
     }
 
     // 对频道的订阅列表操作，会写入
@@ -201,21 +195,6 @@ impl Database {
         self.inner.remove(feed_chan_key)?;
         Ok(())
     }
-}
-
-pub fn init_db(path: Option<String>) {
-    let path = path.unwrap_or_else(|| DEFAULT_DATABASE_PATH.to_owned());
-
-    let inner = sled::Config::default()
-        .flush_every_ms(Some(4 * 1000))
-        .path(path)
-        .open()
-        .expect(&format!(
-            "数据库初始化出错, 反复出现此错误可以尝试删除数据库文件。(默认: {})",
-            DEFAULT_DATABASE_PATH
-        ));
-
-    DB.set(Database { inner }).expect("数据库已经被初始化了");
 }
 
 fn feed_key(feed: &str) -> String {

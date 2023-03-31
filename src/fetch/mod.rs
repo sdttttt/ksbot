@@ -1,6 +1,6 @@
 mod buf;
 mod feed;
-pub mod http;
+mod http;
 mod item;
 mod utils;
 
@@ -67,3 +67,5 @@ impl FromXmlWithReader for SkipThisElement {
         Ok(SkipThisElement)
     }
 }
+
+pub use http::*;

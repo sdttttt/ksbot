@@ -38,6 +38,8 @@ pub struct KookWSFrame<T> {
 pub struct KookEventMessage {
     pub id: Option<String>,
     pub channel_name: Option<String>,
+    // 消息通道类型, GROUP 为组播消息, PERSON 为单播消息, BROADCAST 为广播消息
+    pub channel_type: Option<String>,
     // 内容
     pub content: Option<String>,
     // 随机串，与用户消息发送 api 中传的 nonce 保持一致

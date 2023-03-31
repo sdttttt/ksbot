@@ -41,7 +41,7 @@ enum BotState {
 }
 
 // 机器人运行时，基础设施
-pub struct BotRuntime<'a> {
+pub struct BotNetworkRuntime<'a> {
     state: BotState,
     conf: BotConfig,
     store_f: File,
@@ -73,8 +73,8 @@ pub struct BotRuntime<'a> {
     heart_chan: (Sender<bool>, Receiver<bool>),
 }
 
-impl<'a> BotRuntime<'a> {
-    pub async fn init(conf: BotConfig, event_hook: &'a mut impl BotEventHook) -> BotRuntime {
+impl<'a> BotNetworkRuntime<'a> {
+    pub async fn init(conf: BotConfig, event_hook: &'a mut impl BotEventHook) -> BotNetworkRuntime {
         // 文件初始化
         let http_client = Arc::new(KookHttpClient::new(&conf));
 

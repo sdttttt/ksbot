@@ -83,4 +83,12 @@ mod test {
         let rss_chan = pull_feed("https://www.yystv.cn/rss/feed").await.unwrap();
         assert_eq!("游研社", rss_chan.title.unwrap());
     }
+
+    #[ignore]
+    #[tokio::test]
+    async fn test_pull_feed_for_rsshub_3dm() {
+        setup();
+        let rss_chan = pull_feed("https://rsshub.app/3dm/news").await.unwrap();
+        assert_eq!("游研社", rss_chan.title.unwrap());
+    }
 }
