@@ -57,8 +57,8 @@ pub struct BotNetworkRuntime<'a> {
 
     http_client: Arc<KookHttpClient>,
 
-    // 运行时对外暴露的狗子
-    event_hook: Box<&'a mut dyn BotEventHook>,
+    // 运行时事件实现
+    event_hook: Option<&'a mut dyn BotEventHook>,
 
     /// WebSocket  connection
     ws_write: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
@@ -74,14 +74,9 @@ pub struct BotNetworkRuntime<'a> {
 }
 
 impl<'a> BotNetworkRuntime<'a> {
-    pub async fn init(conf: BotConfig, event_hook: &'a mut impl BotEventHook) -> BotNetworkRuntime {
+    pub fn init(conf: BotConfig) -> BotNetworkRuntime<'a> {
         // 文件初始化
         let http_client = Arc::new(KookHttpClient::new(&conf));
-
-        event_hook
-            .on_work(http_client.clone())
-            .await
-            .expect("on_work 事件调用出错");
 
         // 以可读可写打开可创建的方式打开机器人持久化文件
         let mut f = std::fs::File::options()
@@ -123,11 +118,15 @@ impl<'a> BotNetworkRuntime<'a> {
             process_event_chan: tokio::sync::mpsc::channel::<KookEventMessage>(64),
             wait_process_event_map: HashMap::new(),
             heart_chan: tokio::sync::mpsc::channel::<bool>(1),
-            event_hook: Box::new(event_hook),
+            event_hook: None,
         }
     }
 
-    pub async fn run(&mut self) -> Result<(), anyhow::Error> {
+    pub fn load_event_hook(&mut self, event_hook: &'a mut impl BotEventHook) {
+        self.event_hook = Some(event_hook);
+    }
+
+    pub async fn connect(&mut self) -> Result<(), anyhow::Error> {
         // 网关连接计数器
         let mut connect_gateway_count = 0;
 
@@ -285,7 +284,9 @@ impl<'a> BotNetworkRuntime<'a> {
                             &WS_PONG => {
                                  info!("client <- pong <- server ");
                                  self.heart_chan.0.send(true).await?;
-                                 self.event_hook.on_pong().await?;
+                                 if let Some(event) = &self.event_hook {
+                                    event.on_pong().await?;
+                                 }
                              },
 
                              &WS_RECONNECT =>  {
@@ -361,9 +362,13 @@ impl<'a> BotNetworkRuntime<'a> {
                // 处理事件数据帧
                 event_op = self.process_event_chan.1.recv() => {
                     if let Some(event) = event_op {
-                            if let Err(e) = self.event_hook.on_message(event).await {
-                                error!("事件调用错误：{}", e);
+
+                            if let Some(event_h) = &self.event_hook {
+                                if let Err(e) = event_h.on_message(event).await {
+                                    error!("事件调用错误：{}", e);
+                                }
                             }
+
                         }
                     }
 

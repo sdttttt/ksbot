@@ -39,7 +39,7 @@ impl KsbotRuntime {
         }
     }
 
-    pub fn help(&self) -> String {
+    fn help(&self) -> String {
         "/rss        - 显示当前订阅的 RSS 列表
 /sub        - 订阅一个 RSS: /sub http://example.com/feed.xml
 /unsub      - 退订一个 RSS: /unsub http://example.com/feed.xml"
@@ -47,7 +47,7 @@ impl KsbotRuntime {
     }
 
     // 订阅
-    pub async fn command_sub(&self, channel: &str, url: &str) -> Result<(), KsbotError> {
+    async fn command_sub(&self, channel: &str, url: &str) -> Result<(), KsbotError> {
         fetch::pull_feed(url).await?;
         info!("checked {}", url);
         self.db.channel_subscribed(channel, url)?;
@@ -55,7 +55,7 @@ impl KsbotRuntime {
     }
 
     // 取消订阅
-    pub async fn command_unsub(&self, channel: &str, url: &str) -> Result<(), KsbotError> {
+    async fn command_unsub(&self, channel: &str, url: &str) -> Result<(), KsbotError> {
         self.db.channel_unsubscribed(channel, url)?;
         if self.db.try_remove_feed(url)? {
             todo!("对正在执行该订阅源拉取的线程进行关闭")

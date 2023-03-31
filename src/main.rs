@@ -47,11 +47,12 @@ async fn main1() -> Result<(), anyhow::Error> {
     init_rss_client(None);
 
     let mut ksbot_runtime = rss_event::KsbotRuntime::new();
-    let mut network_runtime = BotNetworkRuntime::init(conf.bot_conf(), &mut ksbot_runtime).await;
+    let mut network_runtime = BotNetworkRuntime::init(conf.bot_conf());
+    network_runtime.load_event_hook(&mut ksbot_runtime);
     info!("ksbot starting ...");
 
     tokio::select! {
-        result = network_runtime.run() => {
+        result = network_runtime.connect() => {
             match  result {
                 Ok(_) => {}
                 Err(e) => bail!("意外退出：{}", e),
