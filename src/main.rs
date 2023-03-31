@@ -1,14 +1,16 @@
 use anyhow::bail;
 
 use simplelog::Config as LogConfig;
-use std::{env, path::Path};
+use std::path::PathBuf;
+use structopt::StructOpt;
 
 use log::*;
+use simplelog::*;
 
 use crate::conf::Config;
 use crate::fetch::init_rss_client;
 use crate::runtime::BotNetworkRuntime;
-use simplelog::*;
+
 mod api;
 mod conf;
 mod db;
@@ -19,22 +21,26 @@ mod runtime_event;
 mod utils;
 mod ws;
 
+#[derive(Debug, StructOpt)]
+#[structopt(name = "ksbot", about = "A simple Kook RSS bot.")]
+struct Args {
+    #[structopt(short, long)]
+    pub token: Option<String>,
+
+    #[structopt(parse(from_os_str))]
+    pub conf_path: Option<PathBuf>,
+}
+
 #[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
-    CombinedLogger::init(vec![
-        TermLogger::new(
-            LevelFilter::Debug,
-            LogConfig::default(),
-            TerminalMode::Mixed,
-            ColorChoice::Auto,
-        ),
-        WriteLogger::new(
-            LevelFilter::Info,
-            LogConfig::default(),
-            std::fs::File::create("bot.log").unwrap(),
-        ),
-    ])
-    .unwrap();
+async fn main() {
+    match main1().await {
+        Ok(()) => unreachable!(),
+        Err(e) => error!("程序错误：{}", e),
+    }
+}
+
+async fn main1() -> Result<(), anyhow::Error> {
+    init_log();
 
     let conf = parse_conf()?;
 
@@ -57,18 +63,35 @@ async fn main() -> Result<(), anyhow::Error> {
 }
 
 fn parse_conf() -> Result<Config, anyhow::Error> {
-    let conf_path = {
-        let args = env::args();
+    let args = Args::from_args();
 
-        if args.len() <= 1 {
-            bail!("must have config file path")
+    match (&args.token, &args.conf_path) {
+        // 优先以配置为准
+        (Some(_), Some(path)) | (None, Some(path)) => Ok(Config::try_from(path.as_path())?),
+
+        (Some(token), None) => {
+            let mut c = Config::default();
+            c.token = token.to_owned();
+            Ok(c)
         }
 
-        match args.last() {
-            Some(t) => t,
-            None => bail!("must have config file path"),
-        }
-    };
+        (None, None) => bail!("token和配置文件至少得设置一个。"),
+    }
+}
 
-    Config::try_from(Path::new(&conf_path))
+fn init_log() {
+    CombinedLogger::init(vec![
+        TermLogger::new(
+            LevelFilter::Debug,
+            LogConfig::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        ),
+        WriteLogger::new(
+            LevelFilter::Info,
+            LogConfig::default(),
+            std::fs::File::create("bot.log").unwrap(),
+        ),
+    ])
+    .unwrap();
 }

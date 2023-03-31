@@ -8,7 +8,7 @@ const MAIN_NAME_FIELD: &str = "Name";
 const MAIN_TOKEN_FIELD: &str = "Token";
 
 pub const BOT_STORE_FILE_PATH: &str = "__bot.json";
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Config {
     pub name: String,
     pub token: String,
