@@ -34,7 +34,7 @@ pub struct KookWSFrame<T> {
     pub sn: Option<u64>, // 消息计数ID和服务端保持一致
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KookEventMessage {
     pub id: Option<String>,
     pub channel_name: Option<String>,

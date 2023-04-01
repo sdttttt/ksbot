@@ -1,4 +1,9 @@
+use once_cell::sync::Lazy;
 use sled::IVec;
+use std::hash::{Hash, Hasher};
+use std::{collections::hash_map::DefaultHasher, sync::Mutex};
+
+static HASHER: Lazy<Mutex<DefaultHasher>> = Lazy::new(|| Mutex::new(DefaultHasher::new()));
 
 #[inline]
 pub fn ivec_to_str(vec: IVec) -> String {
@@ -24,4 +29,11 @@ pub fn split_filter_empty_join_process<F: FnMut(&mut Vec<String>)>(
     let mut vec = split_vec_filter_empty(s, pat);
     f(&mut vec);
     vec.join(&*pat.to_string())
+}
+
+#[inline]
+pub fn hash(k: impl Hash) -> String {
+    let mut hasher = HASHER.lock().unwrap();
+    k.hash(&mut *hasher);
+    hasher.finish().to_string()
 }

@@ -1,30 +1,23 @@
 use log::*;
-use once_cell::sync::Lazy;
 use sled::transaction::TransactionError;
 use sled::IVec;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::sync::Mutex;
 use thiserror::Error;
 
-use crate::fetch;
+use crate::runtime::Feed;
 use crate::utils;
 const DEFAULT_DATABASE_PATH: &str = "__bot.db";
 const ITEM_PAT: char = ';';
 
-static HASHER: Lazy<Mutex<DefaultHasher>> = Lazy::new(|| Mutex::new(DefaultHasher::new()));
-
 #[derive(Debug, Error)]
 pub enum DatabaseError {
-    #[error("订阅源检查出错: {0}")]
-    Feed(#[from] fetch::FeedError),
-
     #[error("数据库内部错误: {0}")]
     Inner(#[from] sled::Error),
 
     #[error("数据库内部事务错误：{0}")]
     InnerTransaction(#[from] TransactionError<sled::Error>),
+
+    #[error("数据序列化错误: ")]
+    Parse(#[from] serde_json::Error),
 }
 
 #[derive(Debug)]
@@ -49,19 +42,21 @@ impl Database {
     }
 
     // 频道订阅
-    pub fn channel_subscribed(&self, channel: &str, feed: &str) -> Result<(), DatabaseError> {
+    pub fn channel_subscribed(&self, channel: &str, feed: Feed) -> Result<(), DatabaseError> {
         // 没有该订阅源先加入订阅列表
-        if !self.contains_feed(feed)? {
-            self.insert_feed(feed)?;
+        if !self.contains_feed(&feed.link)? {
+            self.update_or_create_feed(&feed)?;
         }
 
+        let curr_feed_hash = feed_hash(&feed);
+        // 频道的订阅列表全是以feed的link的hash表示
         self.chan_feed_operaiton(channel, |feeds| {
-            if !feeds.contains(&feed.to_owned()) {
-                feeds.push(feed.to_owned());
+            if !feeds.contains(&curr_feed_hash) {
+                feeds.push(curr_feed_hash.to_owned());
             }
         })?;
 
-        self.feed_chan_operaiton(feed, |chans| {
+        self.feed_chan_operaiton(&*feed_channel_key(&feed.link), |chans| {
             if !chans.contains(&channel.to_owned()) {
                 chans.push(channel.to_owned());
             }
@@ -71,8 +66,9 @@ impl Database {
     }
 
     // 频道取消订阅
-    pub fn channel_unsubscribed(&self, channel: &str, feed: &str) -> Result<(), DatabaseError> {
-        self.feed_chan_operaiton(feed, |v| {
+    pub fn channel_unsubscribed(&self, channel: &str, link: &str) -> Result<(), DatabaseError> {
+        let curr_feed_hash = utils::hash(link);
+        self.feed_chan_operaiton(&*curr_feed_hash, |v| {
             for (idx, chan) in v.iter().enumerate() {
                 if chan == channel {
                     v.remove(idx);
@@ -83,7 +79,7 @@ impl Database {
 
         self.chan_feed_operaiton(channel, |v| {
             for (idx, f) in v.iter().enumerate() {
-                if f == feed {
+                if f == &curr_feed_hash {
                     v.remove(idx);
                     break;
                 }
@@ -93,21 +89,47 @@ impl Database {
         Ok(())
     }
 
-    fn insert_feed(&self, feed: &str) -> Result<(), DatabaseError> {
-        self.inner.insert(&*feed_key(feed), feed)?;
-        Ok(())
+    pub fn update_or_create_feed(&self, feed: &Feed) -> Result<Option<Feed>, DatabaseError> {
+        let feed_v = serde_json::to_vec(feed)?;
+        let feed_old = self.inner.insert(&*feed_key(&feed.link), feed_v)?;
+        let result = feed_old.map(|t| {
+            let s = utils::ivec_to_str(t);
+            serde_json::from_str::<Feed>(&*s).expect("feed序列化失败")
+        });
+
+        Ok(result)
     }
 
     /// 尝试移除订阅源, 如果没有任何频道和该订阅源建立映射的话就会被移除
     /// 能移除订阅源的话可以减少部署端的订阅性能压力
-    pub fn try_remove_feed(&self, feed: &str) -> Result<bool, DatabaseError> {
-        let chan_list = self.feed_channel_list(feed)?;
+    pub fn try_remove_feed(&self, feed_link: &str) -> Result<bool, DatabaseError> {
+        let chan_list = self.feed_channel_list(feed_link)?;
         if chan_list.is_empty() {
-            self.remove_feed(feed)?;
+            self.remove_feed(feed_link)?;
             Ok(true)
         } else {
             Ok(false)
         }
+    }
+
+    pub fn feed_list(&self) -> Result<Vec<Feed>, DatabaseError> {
+        let iter = self.inner.scan_prefix(FEED_KEY_PREFIX);
+        let mut feeds_text = Vec::<String>::new();
+        for r in iter {
+            match r {
+                Ok((_, v_ivec)) => {
+                    feeds_text.push(utils::ivec_to_str(v_ivec));
+                }
+                Err(e) => error!("遍历订阅源错误: {}", e),
+            }
+        }
+
+        let feeds = feeds_text
+            .iter()
+            .map(|t| serde_json::from_str::<Feed>(t).expect("feed 反序列化错误"))
+            .collect::<Vec<Feed>>();
+
+        Ok(feeds)
     }
 
     /// 该频道的订阅列表
@@ -129,8 +151,8 @@ impl Database {
     }
 
     /// 该订阅源的频道列表
-    pub fn feed_channel_list(&self, feed: &str) -> Result<Vec<String>, DatabaseError> {
-        let feed_chan_key = &*feed_channel_key(feed);
+    pub fn feed_channel_list(&self, feed_link: &str) -> Result<Vec<String>, DatabaseError> {
+        let feed_chan_key = &*feed_channel_key(feed_link);
         // 该订阅源的频道列表
         let feed_chans_ivec = self
             .inner
@@ -176,10 +198,9 @@ impl Database {
     // 对订阅源的频道列表操作，会写入
     fn feed_chan_operaiton(
         &self,
-        feed: &str,
+        feed_chan_key: &str,
         f: impl FnMut(&mut Vec<String>),
     ) -> Result<(), DatabaseError> {
-        let feed_chan_key = &*feed_channel_key(feed);
         // 该订阅源的频道列表
         let feed_chans_ivec = self
             .inner
@@ -200,41 +221,41 @@ impl Database {
 
     // 是否包含订阅源
     #[inline]
-    fn contains_feed(&self, feed: &str) -> Result<bool, DatabaseError> {
-        let r = self.inner.contains_key(feed_key(feed))?;
-        debug!("contains_feed: {} > {}", r, feed);
+    fn contains_feed(&self, feed_link: &str) -> Result<bool, DatabaseError> {
+        let r = self.inner.contains_key(feed_key(feed_link))?;
+        debug!("contains_feed: {} > {}", r, feed_link);
         Ok(r)
     }
 
     // 移除订阅源
     #[inline]
-    fn remove_feed(&self, feed: &str) -> Result<(), DatabaseError> {
-        self.inner.remove(&*feed_key(feed))?;
+    fn remove_feed(&self, feed_link: &str) -> Result<(), DatabaseError> {
+        self.inner.remove(&*feed_key(feed_link))?;
         Ok(())
     }
 }
 
-fn feed_key(feed: &str) -> String {
-    let ha = hash(feed);
-    format!("feed::{}", ha)
+const FEED_KEY_PREFIX: &str = "feed::";
+#[inline]
+fn feed_key(link: &str) -> String {
+    let ha = utils::hash(link);
+    format!("{}{}", FEED_KEY_PREFIX, ha)
 }
 
-fn feed_channel_key(feed: &str) -> String {
-    let ha = hash(feed);
-    format!("feed::channel:{}", ha)
+const FEED_CHANNEL_KEY_PREFIX: &str = "feed::channel::";
+#[inline]
+fn feed_channel_key(link: &str) -> String {
+    let ha = utils::hash(link);
+    format!("{}{}", FEED_CHANNEL_KEY_PREFIX, ha)
 }
 
+const CHANNEL_FEED_KEY_PREFIX: &str = "channel::feed::";
+#[inline]
 fn channel_feed_key(channel: &str) -> String {
-    format!("channel::feed:{}", channel)
+    format!("{}{}", CHANNEL_FEED_KEY_PREFIX, channel)
 }
 
-fn feed_date_key(feed: &str) -> String {
-    let ha = hash(feed);
-    format!("feed::date::{}", ha)
-}
-
-fn hash(k: impl Hash) -> String {
-    let mut hasher = HASHER.lock().unwrap();
-    k.hash(&mut *hasher);
-    hasher.finish().to_string()
+#[inline]
+fn feed_hash(feed: &Feed) -> String {
+    utils::hash(&feed.link)
 }

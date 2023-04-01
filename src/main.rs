@@ -7,18 +7,19 @@ use structopt::StructOpt;
 use log::*;
 use simplelog::*;
 
+use crate::api::http::init_kook_client;
 use crate::conf::Config;
 use crate::fetch::init_rss_client;
-use crate::runtime::BotNetworkRuntime;
+use crate::network_runtime::BotNetworkRuntime;
 
 mod api;
 mod conf;
 mod db;
 mod fetch;
-mod rss_event;
+mod network_runtime;
 mod runtime;
-mod runtime_event;
 mod utils;
+mod worker;
 mod ws;
 
 #[derive(Debug, StructOpt)]
@@ -45,17 +46,20 @@ async fn main1() -> Result<(), anyhow::Error> {
     let conf = parse_conf()?;
 
     init_rss_client(None);
+    init_kook_client(conf.bot_conf());
 
-    let mut ksbot_runtime = rss_event::KsbotRuntime::new();
+    let mut ksbot_runtime = runtime::KsbotRuntime::new();
     let mut network_runtime = BotNetworkRuntime::init(conf.bot_conf());
-    network_runtime.load_event_hook(&mut ksbot_runtime);
+
     info!("ksbot starting ...");
 
     tokio::select! {
-        result = network_runtime.connect() => {
-            match  result {
-                Ok(_) => {}
-                Err(e) => bail!("意外退出：{}", e),
+        r = ksbot_runtime.subscribe(network_runtime.subscribe_event()) => {
+            if let Err(e) = r {error!("ksbot 意外退出: {:?}", e);}
+        },
+        r = network_runtime.connect() => {
+            if let Err(e)  = r {
+                error!("ksbot network 意外退出: {:?}", e);
             }
         },
     }

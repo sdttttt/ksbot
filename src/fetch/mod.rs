@@ -1,7 +1,7 @@
 mod buf;
-mod feed;
+pub mod feed;
 mod http;
-mod item;
+pub mod item;
 mod utils;
 
 use std::io::BufRead;
@@ -11,8 +11,6 @@ use quick_xml::Reader as XmlReader;
 
 use self::buf::BufPool;
 use self::feed::RSSChannel;
-
-pub const RSS_VERSION_AVAILABLE: &str = "2.0";
 
 pub trait FromXmlWithStr: Sized {
     fn from_xml_with_str(bufs: &BufPool, text: &str) -> quick_xml::Result<Self>;

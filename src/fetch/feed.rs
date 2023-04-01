@@ -9,19 +9,17 @@ use super::utils::attrs_get_str;
 use super::utils::{parse_atom_link, AtomLink, NumberData, TextOrCData};
 use super::{FromXmlWithBufRead, FromXmlWithReader, FromXmlWithStr, SkipThisElement};
 
-use super::RSS_VERSION_AVAILABLE;
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "rss")]
 pub struct RSSChannel {
     #[serde(skip)]
     pub version: Option<String>,
 
-    pub title: Option<String>,
+    pub title: String,
 
     pub description: Option<String>,
 
-    pub url: Option<String>,
+    pub url: String,
 
     #[serde(rename = "atomLink")]
     pub atom_link: Option<String>,
@@ -36,7 +34,7 @@ pub struct RSSChannel {
     #[serde(rename = "lastBuildDate")]
     pub last_build_date: Option<String>,
 
-    pub ttl: Option<usize>,
+    pub ttl: Option<u32>,
 
     pub image: Option<ChannelImage>,
 
@@ -90,9 +88,9 @@ impl FromXmlWithReader for RSSChannel {
         reader: &mut Reader<B>,
     ) -> quick_xml::Result<Self> {
         let mut version = None;
-        let mut title = None;
+        let mut title = "".to_owned();
         let mut description = None;
-        let mut url = None;
+        let mut url = "".to_owned();
         let mut atom_link = None;
         let mut language = None;
         let mut web_master = None;
@@ -119,7 +117,7 @@ impl FromXmlWithReader for RSSChannel {
                             match reader.read_event(&mut cbuf) {
                                 Ok(Event::Empty(ref ce)) => match reader.decode(ce.local_name())? {
                                     "link" => match parse_atom_link(reader, ce.attributes())? {
-                                        Some(AtomLink::Alternate(link)) => url = Some(link),
+                                        Some(AtomLink::Alternate(link)) => url = link,
                                         Some(AtomLink::Source(link)) => atom_link = Some(link),
                                         _ => {}
                                     },
@@ -130,6 +128,7 @@ impl FromXmlWithReader for RSSChannel {
                                 Ok(Event::Start(ref ce)) => match reader.decode(ce.local_name())? {
                                     "title" => {
                                         title = TextOrCData::from_xml_with_reader(bufs, reader)?
+                                            .expect("没有title的订阅源？！");
                                     }
 
                                     "description" => {
@@ -139,13 +138,13 @@ impl FromXmlWithReader for RSSChannel {
 
                                     "link" => {
                                         match TextOrCData::from_xml_with_reader(bufs, reader)? {
-                                            Some(s) => url = Some(s),
+                                            Some(s) => url = s,
                                             None => {
                                                 match parse_atom_link(reader, ce.attributes())? {
                                                     Some(AtomLink::Source(e)) => {
                                                         atom_link = Some(e)
                                                     }
-                                                    Some(AtomLink::Alternate(e)) => url = Some(e),
+                                                    Some(AtomLink::Alternate(e)) => url = e,
                                                     _ => (),
                                                 }
                                             }
@@ -247,7 +246,7 @@ impl FromStr for RSSChannel {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "image")]
 pub struct ChannelImage {
     url: Option<String>,
@@ -292,11 +291,26 @@ mod test {
     fn encoding() {
         let s: &[u8] = include_bytes!("../../test/data/rss_2.0.xml");
         let r = RSSChannel::from_xml_with_buf(Cursor::new(s)).unwrap();
-        assert_eq!(r.title, Some("rss_2.0.channel.title".to_owned()));
-        assert_eq!(r.url, Some("rss_2.0.channel.link".to_owned()));
+        assert_eq!(r.title, "rss_2.0.channel.title".to_owned());
+        assert_eq!(r.url, "rss_2.0.channel.link".to_owned());
         assert_eq!(
             r.description,
             Some("rss_2.0.channel.description".to_owned())
+        );
+    }
+
+    #[test]
+    fn samdm_test() {
+        let s: &[u8] = include_bytes!("../../test/data/3dm.xml");
+        let r = RSSChannel::from_xml_with_buf(Cursor::new(s)).unwrap();
+        assert_eq!(r.title, "3DM - 新闻中心".to_owned());
+        assert_eq!(r.url, "http://www.3dmgame.com/news/".to_owned());
+        assert_eq!(
+            r.description,
+            Some(
+                "3DM - 新闻中心 - Made with love by RSSHub(https://github.com/DIYgod/RSSHub)"
+                    .to_owned()
+            )
         );
     }
 }

@@ -10,23 +10,17 @@ use super::FromXmlWithReader;
 use super::FromXmlWithStr;
 use super::SkipThisElement;
 
-#[derive(Debug, Serialize, Default, Deserialize)]
+#[derive(Debug, Clone, Serialize, Default, Deserialize)]
 #[serde(rename = "item")]
 pub struct ChannelItem {
-    title: Option<String>,
-
-    description: Option<String>,
-
+    pub title: Option<String>,
+    pub description: Option<String>,
     #[serde(rename = "pubDate")]
-    pub_date: Option<String>,
-
-    guid: Option<String>,
-
-    link: Option<String>,
-
-    author: Option<String>,
-
-    category: Vec<String>,
+    pub pub_date: Option<String>,
+    pub guid: Option<String>,
+    pub link: Option<String>,
+    pub author: Option<String>,
+    pub category: Vec<String>,
 }
 
 impl FromXmlWithStr for ChannelItem {
@@ -121,24 +115,6 @@ impl FromXmlWithReader for ChannelItem {
             author,
             category,
         })
-    }
-}
-
-impl ChannelItem {
-    pub fn title(&self) -> String {
-        self.title.as_deref().unwrap_or("").to_string()
-    }
-
-    pub fn description(&self) -> String {
-        self.description.as_deref().unwrap_or("").to_string()
-    }
-
-    pub fn pub_date(&self) -> String {
-        self.pub_date.as_deref().unwrap_or("").to_string()
-    }
-
-    pub fn link(&self) -> String {
-        self.link.as_deref().unwrap_or("").to_string()
     }
 }
 

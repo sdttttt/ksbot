@@ -9,7 +9,7 @@ use super::buf::BufPool;
 use super::FromXmlWithReader;
 
 pub type TextOrCData = Option<String>;
-pub type NumberData = Option<usize>;
+pub type NumberData = Option<u32>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AtomLink<'a> {
@@ -76,7 +76,7 @@ impl FromXmlWithReader for NumberData {
             match reader.read_event(&mut buf) {
                 Ok(Event::Text(ref e)) => {
                     let number_str = reader.decode(e)?;
-                    number = Some(match number_str.parse::<usize>() {
+                    number = Some(match number_str.parse::<u32>() {
                         Err(_) => {
                             return Err(quick_xml::Error::UnexpectedToken(
                                 (format!("{} to number failed!", number_str)).to_string(),
@@ -88,7 +88,7 @@ impl FromXmlWithReader for NumberData {
 
                 Ok(Event::CData(ref e)) => {
                     let number_str = reader.decode(e)?;
-                    number = Some(match number_str.parse::<usize>() {
+                    number = Some(match number_str.parse::<u32>() {
                         Err(_) => {
                             return Err(quick_xml::Error::UnexpectedToken(
                                 (format!("{} to number failed!", number_str)).to_string(),
