@@ -31,4 +31,8 @@ jobs:
       run: cargo build --release
 
     - name: Test
-      run: cargo test --verbose
+      run: cargo test --release --verbose
+
+    - uses: actions/upload-artifact@v3
+      with:
+        path: ./target/release/ksbot.exe
