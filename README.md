@@ -1,7 +1,7 @@
 # Ksbot
 
-一个尽可能简单的RSS订阅机器人, 用于Kook, 使用WS通信, 易于部署。
-RSS订阅以及解析部分的代码，从[iovxw/rssbot](https://github.com/iovxw/rssbot)移植以及参考，真的非常感谢.
+一个尽可能简单的RSS订阅bot, 用于Kook, 使用WS通信, 易于部署。
+该bot的rss部分设计来自[iovxw/rssbot](https://github.com/iovxw/rssbot).
 
 > ⚠ **目前只支持RSS2.0**
 
