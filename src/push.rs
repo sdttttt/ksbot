@@ -31,6 +31,9 @@ pub async fn push_update(db: Arc<Database>, feed: Feed) -> Result<(), anyhow::Er
         let feed = old_feed.as_ref().unwrap();
         // 取出新的文章index
         let (new_indexs, _) = new_feed.diff_post_index(feed);
+        if new_indexs.is_empty() {
+            info!("文章无变化，不推送: {}", &*new_feed.subscribe_url);
+        }
         for idx in new_indexs {
             push_post(ch.to_owned(), &new_rss.posts[idx]).await?;
         }

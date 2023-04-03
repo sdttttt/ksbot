@@ -87,7 +87,7 @@ fn parse_conf() -> Result<Config, anyhow::Error> {
 fn init_log() {
     CombinedLogger::init(vec![
         TermLogger::new(
-            LevelFilter::Debug,
+            LevelFilter::Info,
             LogConfig::default(),
             TerminalMode::Mixed,
             ColorChoice::Auto,
