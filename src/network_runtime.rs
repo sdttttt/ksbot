@@ -1,6 +1,6 @@
 use crate::api;
 use crate::conf::{BotConfig, BOT_STORE_FILE_PATH};
-use crate::ws::{
+use crate::network_frame::{
     KookEventMessage, KookWSFrame, WS_HELLO, WS_MESSAGE, WS_PONG, WS_RECONNECT, WS_RESUME_ACK,
 };
 use anyhow::bail;
@@ -25,6 +25,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 
 #[derive(Debug, Clone)]
 pub enum BotNetworkEvent {
+    Connect(),
     Message(KookEventMessage),
     Heart(),
     Error(),

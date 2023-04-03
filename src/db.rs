@@ -67,8 +67,8 @@ impl Database {
 
     // 频道取消订阅
     pub fn channel_unsubscribed(&self, channel: &str, link: &str) -> Result<(), DatabaseError> {
-        let curr_feed_hash = utils::hash(link);
-        self.feed_chan_operaiton(&*curr_feed_hash, |v| {
+        let feed_chan_key = feed_channel_key(link);
+        self.feed_chan_operaiton(&*feed_chan_key, |v| {
             for (idx, chan) in v.iter().enumerate() {
                 if chan == channel {
                     v.remove(idx);
@@ -77,6 +77,7 @@ impl Database {
             }
         })?;
 
+        let curr_feed_hash = utils::hash(link);
         self.chan_feed_operaiton(channel, |v| {
             for (idx, f) in v.iter().enumerate() {
                 if f == &curr_feed_hash {
@@ -258,4 +259,59 @@ fn channel_feed_key(channel: &str) -> String {
 #[inline]
 fn feed_hash(feed: &Feed) -> String {
     utils::hash(&feed.link)
+}
+
+#[cfg(test)]
+mod test {
+
+    use crate::{runtime::Feed, utils::hash};
+
+    use super::Database;
+    use once_cell::sync::Lazy;
+
+    const TEST_DB_PATH: &str = "__bot_test.db";
+
+    static DB: Lazy<Database> = Lazy::new(|| Database::new(Some(TEST_DB_PATH.to_owned())));
+
+    fn before_setup() {
+        std::fs::remove_dir_all(TEST_DB_PATH).unwrap();
+    }
+
+    #[test]
+    fn test_db() {
+        before_setup();
+
+        let link = "http://a.b";
+        let chan = "test_chan";
+        let feed = Feed {
+            title: "test_feed".to_owned(),
+            link: link.to_owned(),
+            ..Default::default()
+        };
+
+        let feeds = DB.channel_feed_list(chan).unwrap();
+        assert_eq!(0, feeds.len());
+        let chans = DB.feed_channel_list(link).unwrap();
+        assert_eq!(0, chans.len());
+
+        DB.channel_subscribed(chan, feed.to_owned()).unwrap();
+
+        let feeds_1 = DB.channel_feed_list(chan).unwrap();
+        assert_eq!(1, feeds_1.len());
+        assert_eq!(hash(link), feeds_1[0]);
+        let chans_1 = DB.feed_channel_list(link).unwrap();
+        assert_eq!(1, chans_1.len());
+        assert_eq!(chan, chans_1[0]);
+
+        DB.channel_unsubscribed("test_chan", &feed.link).unwrap();
+
+        let feeds_2 = DB.channel_feed_list(chan).unwrap();
+        assert_eq!(0, feeds_2.len());
+        let chans_2 = DB.feed_channel_list(link).unwrap();
+        assert_eq!(0, chans_2.len());
+
+        assert!(DB.contains_feed(link).unwrap());
+        DB.try_remove_feed(link).unwrap();
+        assert!(!DB.contains_feed(link).unwrap());
+    }
 }

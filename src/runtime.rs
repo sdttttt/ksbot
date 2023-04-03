@@ -1,8 +1,9 @@
-use crate::api::http::UserMe;
+use crate::api::http::{user_me, UserMe};
 use crate::db::{self, Database};
 use crate::fetch::feed::RSSChannel;
+use crate::network_frame::KookEventMessage;
 use crate::network_runtime::BotNetworkEvent;
-use crate::ws::KookEventMessage;
+use crate::utils::Throttle;
 use crate::{api, fetch, utils, worker};
 use futures_util::FutureExt;
 use futures_util::StreamExt;
@@ -58,7 +59,7 @@ impl KsbotRuntime {
         let mut feed_interval =
             tokio::time::interval(Duration::from_secs(FEED_REFRESH_INTERVAL as u64));
         let mut queue = FetchQueue::new();
-        let throttle = Throttle::new(FEED_REFRESH_INTERVAL as usize);
+        let throttle = Throttle::new(FEED_REFRESH_INTERVAL as usize, None);
 
         loop {
             tokio::select! {
@@ -87,21 +88,15 @@ impl KsbotRuntime {
 
                 net_event = net_rece.recv() => {
                     match net_event  {
-                        Err(e) => error!("网络事件接收错误: {:?}", e),
-
-                        Ok(BotNetworkEvent::Message(msg)) => {
-                            self.on_message(msg).await?;
-                        },
-
-                        Ok(BotNetworkEvent::Heart()) => {
-                            self.on_pong().await?;
-                         },
-                        Ok(BotNetworkEvent::Error()) => {},
+                        Ok(BotNetworkEvent::Connect()) => self.on_connect().await?,
+                        Ok(BotNetworkEvent::Message(msg)) => self.on_message(msg).await?,
+                        Ok(BotNetworkEvent::Heart()) => self.on_pong().await?,
+                        Ok(BotNetworkEvent::Error()) => self.on_error()?,
                         Ok(BotNetworkEvent::Shutdown()) => {
                             info!("Shutting down.");
                             break;
                         },
-
+                        Err(e) => error!("网络事件接收错误: {:?}", e),
                     }
                 }
             }
@@ -129,9 +124,13 @@ impl KsbotRuntime {
     // 取消订阅
     async fn command_unsub(&self, channel: &str, url: &str) -> Result<(), KsbotError> {
         self.db.channel_unsubscribed(channel, url)?;
-        if self.db.try_remove_feed(url)? {
-            todo!("对正在执行该订阅源拉取的线程进行关闭")
-        }
+        self.db.try_remove_feed(url)?;
+        Ok(())
+    }
+
+    async fn on_connect(&mut self) -> Result<(), KsbotError> {
+        let me = user_me().await?;
+        self.me_info = Some(me);
         Ok(())
     }
 
@@ -210,6 +209,10 @@ impl KsbotRuntime {
             .await?;
         }
 
+        Ok(())
+    }
+
+    fn on_error(&self) -> Result<(), KsbotError> {
         Ok(())
     }
 }
@@ -294,44 +297,5 @@ impl FetchQueue {
                 self.wakeup.notified().await;
             }
         }
-    }
-}
-
-struct Throttle {
-    pieces: usize,
-    counter: Arc<AtomicUsize>,
-}
-
-impl Throttle {
-    fn new(pieces: usize) -> Self {
-        Throttle {
-            pieces,
-            counter: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    fn acquire(&self) -> Opportunity {
-        Opportunity {
-            n: self.counter.fetch_add(1, Ordering::AcqRel) % self.pieces,
-            counter: self.counter.clone(),
-        }
-    }
-}
-
-#[must_use = "Don't lose your opportunity"]
-struct Opportunity {
-    n: usize,
-    counter: Arc<AtomicUsize>,
-}
-
-impl Opportunity {
-    async fn wait(&self) {
-        tokio::time::sleep(Duration::from_secs(self.n as u64)).await
-    }
-}
-
-impl Drop for Opportunity {
-    fn drop(&mut self) {
-        self.counter.fetch_sub(1, Ordering::SeqCst);
     }
 }

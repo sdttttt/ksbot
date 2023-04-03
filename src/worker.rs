@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::api::http;
 use anyhow::bail;
@@ -25,6 +25,7 @@ pub async fn pull_feed_and_push_update(db: Arc<Database>, feed: Feed) -> Result<
     let chans = db.feed_channel_list(&*new_feed.link)?;
 
     for ch in chans {
+        tokio::time::sleep(Duration::from_millis(200)).await;
         match old_feed {
             None => {
                 // 第一次刷新订阅源，就推送一条最新的新闻。

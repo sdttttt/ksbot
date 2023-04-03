@@ -16,11 +16,11 @@ mod api;
 mod conf;
 mod db;
 mod fetch;
+mod network_frame;
 mod network_runtime;
 mod runtime;
 mod utils;
 mod worker;
-mod ws;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "ksbot", about = "A simple Kook RSS bot.")]

@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use once_cell::sync::OnceCell;
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
+use tokio::time::Interval;
 
 use crate::conf::BotConfig;
 use log::*;
@@ -19,6 +21,7 @@ const MESSAGE_TYPE_KMAEKDOWN: usize = 9;
 const USER_ME_URL: &str = "/user/me";
 
 static CLIENT: OnceCell<reqwest::Client> = OnceCell::new();
+static CLIENT_SPEED_LIMIT: OnceCell<Arc<Mutex<Interval>>> = OnceCell::new();
 
 pub fn init_kook_client(conf: BotConfig) {
     let http_client = {
@@ -31,12 +34,27 @@ pub fn init_kook_client(conf: BotConfig) {
         Client::builder().default_headers(headers).build().unwrap()
     };
 
+    // 请求速度限制器
+    let interval = tokio::time::interval(Duration::from_millis(200));
+
     CLIENT
         .set(http_client)
         .expect("kook client already initialized");
+
+    CLIENT_SPEED_LIMIT
+        .set(Arc::new(Mutex::new(interval)))
+        .expect("kook client speed limit  already initialized");
+}
+
+// 减速阀，每个请求平台API前调用这个
+async fn req_slow_down() {
+    let mut limit = CLIENT_SPEED_LIMIT.get().unwrap().lock().await;
+    limit.tick().await;
 }
 
 pub async fn get_wss_gateway() -> Result<String, anyhow::Error> {
+    req_slow_down().await;
+
     let url = &prefix_url(GATEWAY_URL);
     info!("get_wss_gateway: {}", url);
     let res = CLIENT
@@ -62,6 +80,8 @@ pub async fn message_create(
     typ: Option<usize>,
     quote: Option<String>,
 ) -> Result<(), anyhow::Error> {
+    req_slow_down().await;
+
     #[derive(Debug, Serialize)]
     struct Request {
         content: String,
@@ -93,6 +113,8 @@ pub async fn message_create(
 }
 
 pub async fn user_me() -> Result<UserMe, anyhow::Error> {
+    req_slow_down().await;
+
     let res = CLIENT
         .get()
         .expect("CLIENT not initialized")

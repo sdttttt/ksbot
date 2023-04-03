@@ -539,6 +539,7 @@ dependencies = [
  "anyhow",
  "flate2",
  "futures-util",
+ "itoa",
  "log",
  "once_cell",
  "quick-xml",
