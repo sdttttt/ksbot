@@ -290,40 +290,43 @@ mod test {
         before_setup();
 
         let link = "http://a.b";
+        let subscribe_url = "http://b.a";
         let chan = "test_chan";
         let feed = Feed {
             title: "test_feed".to_owned(),
             link: link.to_owned(),
+            subscribe_url: subscribe_url.to_owned(),
             ..Default::default()
         };
 
         let feeds = DB.channel_feed_list(chan).unwrap();
         assert_eq!(0, feeds.len());
-        let chans = DB.feed_channel_list(link).unwrap();
+        let chans = DB.feed_channel_list(subscribe_url).unwrap();
         assert_eq!(0, chans.len());
 
         DB.channel_subscribed(chan, feed.to_owned()).unwrap();
 
         let feeds_1 = DB.channel_feed_list(chan).unwrap();
         assert_eq!(1, feeds_1.len());
-        assert_eq!(hash(link), feeds_1[0]);
-        let chans_1 = DB.feed_channel_list(link).unwrap();
+        assert_eq!(hash("http://b.a"), feeds_1[0]);
+        let chans_1 = DB.feed_channel_list(subscribe_url).unwrap();
         assert_eq!(1, chans_1.len());
         assert_eq!(chan, chans_1[0]);
 
         let all_feeds = DB.feed_list().unwrap();
         assert_eq!(1, all_feeds.len());
 
-        DB.channel_unsubscribed("test_chan", &feed.link).unwrap();
+        DB.channel_unsubscribed("test_chan", &feed.subscribe_url)
+            .unwrap();
 
         let feeds_2 = DB.channel_feed_list(chan).unwrap();
         assert_eq!(0, feeds_2.len());
-        let chans_2 = DB.feed_channel_list(link).unwrap();
+        let chans_2 = DB.feed_channel_list(subscribe_url).unwrap();
         assert_eq!(0, chans_2.len());
 
-        assert!(DB.contains_feed(link).unwrap());
-        DB.try_remove_feed(link).unwrap();
-        assert!(!DB.contains_feed(link).unwrap());
+        assert!(DB.contains_feed(subscribe_url).unwrap());
+        DB.try_remove_feed(subscribe_url).unwrap();
+        assert!(!DB.contains_feed(subscribe_url).unwrap());
     }
 
     #[test]
