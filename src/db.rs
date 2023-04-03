@@ -44,19 +44,19 @@ impl Database {
     // 频道订阅
     pub fn channel_subscribed(&self, channel: &str, feed: Feed) -> Result<(), DatabaseError> {
         // 没有该订阅源先加入订阅列表
-        if !self.contains_feed(&feed.link)? {
+        if !self.contains_feed(&feed.subscribe_url)? {
             self.update_or_create_feed(&feed)?;
         }
 
         let curr_feed_hash = feed_hash(&feed);
-        // 频道的订阅列表全是以feed的link的hash表示
+        // 频道的订阅列表全是以feed的subscribe_url的hash表示
         self.chan_feed_operaiton(channel, |feeds| {
             if !feeds.contains(&curr_feed_hash) {
                 feeds.push(curr_feed_hash.to_owned());
             }
         })?;
 
-        self.feed_chan_operaiton(&*feed_channel_key(&feed.link), |chans| {
+        self.feed_chan_operaiton(&*feed_channel_key(&feed.subscribe_url), |chans| {
             if !chans.contains(&channel.to_owned()) {
                 chans.push(channel.to_owned());
             }
@@ -66,8 +66,12 @@ impl Database {
     }
 
     // 频道取消订阅
-    pub fn channel_unsubscribed(&self, channel: &str, link: &str) -> Result<(), DatabaseError> {
-        let feed_chan_key = feed_channel_key(link);
+    pub fn channel_unsubscribed(
+        &self,
+        channel: &str,
+        subscribe_url: &str,
+    ) -> Result<(), DatabaseError> {
+        let feed_chan_key = feed_channel_key(subscribe_url);
         self.feed_chan_operaiton(&*feed_chan_key, |v| {
             for (idx, chan) in v.iter().enumerate() {
                 if chan == channel {
@@ -77,7 +81,7 @@ impl Database {
             }
         })?;
 
-        let curr_feed_hash = utils::hash(link);
+        let curr_feed_hash = utils::hash(subscribe_url);
         self.chan_feed_operaiton(channel, |v| {
             for (idx, f) in v.iter().enumerate() {
                 if f == &curr_feed_hash {
@@ -91,8 +95,10 @@ impl Database {
     }
 
     pub fn update_or_create_feed(&self, feed: &Feed) -> Result<Option<Feed>, DatabaseError> {
-        let feed_v = serde_json::to_vec(feed)?;
-        let feed_old = self.inner.insert(&*feed_key(&feed.link), feed_v)?;
+        let feed_v = serde_json::to_string(feed)?;
+        let feed_old = self
+            .inner
+            .insert(&*feed_key(&feed.subscribe_url), feed_v.as_bytes())?;
         let result = feed_old.map(|t| {
             let s = utils::ivec_to_str(t);
             serde_json::from_str::<Feed>(&*s).expect("feed序列化失败")
@@ -103,10 +109,10 @@ impl Database {
 
     /// 尝试移除订阅源, 如果没有任何频道和该订阅源建立映射的话就会被移除
     /// 能移除订阅源的话可以减少部署端的订阅性能压力
-    pub fn try_remove_feed(&self, feed_link: &str) -> Result<bool, DatabaseError> {
-        let chan_list = self.feed_channel_list(feed_link)?;
+    pub fn try_remove_feed(&self, subscribe_url: &str) -> Result<bool, DatabaseError> {
+        let chan_list = self.feed_channel_list(subscribe_url)?;
         if chan_list.is_empty() {
-            self.remove_feed(feed_link)?;
+            self.remove_feed(subscribe_url)?;
             Ok(true)
         } else {
             Ok(false)
@@ -152,8 +158,8 @@ impl Database {
     }
 
     /// 该订阅源的频道列表
-    pub fn feed_channel_list(&self, feed_link: &str) -> Result<Vec<String>, DatabaseError> {
-        let feed_chan_key = &*feed_channel_key(feed_link);
+    pub fn feed_channel_list(&self, subscribe_url: &str) -> Result<Vec<String>, DatabaseError> {
+        let feed_chan_key = &*feed_channel_key(subscribe_url);
         // 该订阅源的频道列表
         let feed_chans_ivec = self
             .inner
@@ -222,31 +228,31 @@ impl Database {
 
     // 是否包含订阅源
     #[inline]
-    fn contains_feed(&self, feed_link: &str) -> Result<bool, DatabaseError> {
-        let r = self.inner.contains_key(feed_key(feed_link))?;
-        debug!("contains_feed: {} > {}", r, feed_link);
+    pub fn contains_feed(&self, subscribe_url: &str) -> Result<bool, DatabaseError> {
+        let r = self.inner.contains_key(feed_key(subscribe_url))?;
+        info!("contains_feed: {} <=> {}", r, subscribe_url);
         Ok(r)
     }
 
     // 移除订阅源
     #[inline]
-    fn remove_feed(&self, feed_link: &str) -> Result<(), DatabaseError> {
-        self.inner.remove(&*feed_key(feed_link))?;
+    fn remove_feed(&self, subscribe_url: &str) -> Result<(), DatabaseError> {
+        self.inner.remove(&*feed_key(subscribe_url))?;
         Ok(())
     }
 }
 
-const FEED_KEY_PREFIX: &str = "feed::";
+const FEED_KEY_PREFIX: &str = "feed::key::";
 #[inline]
-fn feed_key(link: &str) -> String {
-    let ha = utils::hash(link);
+fn feed_key(subscribe_url: &str) -> String {
+    let ha = utils::hash(subscribe_url);
     format!("{}{}", FEED_KEY_PREFIX, ha)
 }
 
 const FEED_CHANNEL_KEY_PREFIX: &str = "feed::channel::";
 #[inline]
-fn feed_channel_key(link: &str) -> String {
-    let ha = utils::hash(link);
+fn feed_channel_key(subscribe_url: &str) -> String {
+    let ha = utils::hash(subscribe_url);
     format!("{}{}", FEED_CHANNEL_KEY_PREFIX, ha)
 }
 
@@ -258,7 +264,7 @@ fn channel_feed_key(channel: &str) -> String {
 
 #[inline]
 fn feed_hash(feed: &Feed) -> String {
-    utils::hash(&feed.link)
+    utils::hash(&feed.subscribe_url)
 }
 
 #[cfg(test)]
@@ -274,7 +280,9 @@ mod test {
     static DB: Lazy<Database> = Lazy::new(|| Database::new(Some(TEST_DB_PATH.to_owned())));
 
     fn before_setup() {
-        std::fs::remove_dir_all(TEST_DB_PATH).unwrap();
+        if std::path::Path::new(TEST_DB_PATH).exists() {
+            std::fs::remove_dir_all(TEST_DB_PATH).unwrap();
+        }
     }
 
     #[test]
@@ -303,6 +311,9 @@ mod test {
         assert_eq!(1, chans_1.len());
         assert_eq!(chan, chans_1[0]);
 
+        let all_feeds = DB.feed_list().unwrap();
+        assert_eq!(1, all_feeds.len());
+
         DB.channel_unsubscribed("test_chan", &feed.link).unwrap();
 
         let feeds_2 = DB.channel_feed_list(chan).unwrap();
@@ -313,5 +324,21 @@ mod test {
         assert!(DB.contains_feed(link).unwrap());
         DB.try_remove_feed(link).unwrap();
         assert!(!DB.contains_feed(link).unwrap());
+    }
+
+    #[test]
+    fn test_serde() {
+        let link = "http://a.b";
+        let feed = Feed {
+            title: "test_feed".to_owned(),
+            link: link.to_owned(),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&feed).unwrap();
+        assert_ne!(json, "".to_owned());
+        let feed2 = serde_json::from_str::<Feed>(&json).unwrap();
+        assert_eq!(link, feed2.link);
+        assert_eq!("test_feed", feed2.title);
     }
 }

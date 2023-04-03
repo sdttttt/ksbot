@@ -224,6 +224,13 @@ impl BotNetworkRuntime {
 
         self.ws_read = Some(read);
         self.ws_write = Some(write);
+
+        if let Some(sender) = &self.event_sender {
+            if let Err(e) = sender.send(BotNetworkEvent::Connect()) {
+                error!("通信运行时消息发送失败：{}", e);
+            }
+        }
+
         Ok(())
     }
 

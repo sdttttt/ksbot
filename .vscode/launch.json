@@ -13,8 +13,9 @@
                     "build"
                 ]
             },
-            "args": ["conf.ini"]
+            "args": [
+                "conf.ini"
+            ]
         }
-
     ]
 }

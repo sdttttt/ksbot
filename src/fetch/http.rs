@@ -39,7 +39,7 @@ pub async fn pull_feed(url: &str) -> Result<RSSChannel, FeedError> {
         }
     }
 
-    let feed = {
+    let rss = {
         let mut buf = vec![];
         while let Some(bytes) = resp.chunk().await? {
             if buf.len() + bytes.len() > size_limit as usize {
@@ -50,7 +50,7 @@ pub async fn pull_feed(url: &str) -> Result<RSSChannel, FeedError> {
         super::RSSChannel::from_xml_with_buf(std::io::Cursor::new(buf))?
     };
 
-    Ok(feed)
+    Ok(rss)
 }
 
 pub fn init_rss_client(max_feed_size: Option<u64>) {

@@ -19,7 +19,7 @@ pub struct RSSChannel {
 
     pub description: Option<String>,
 
-    pub url: String,
+    pub link: String,
 
     #[serde(rename = "atomLink")]
     pub atom_link: Option<String>,
@@ -213,7 +213,7 @@ impl FromXmlWithReader for RSSChannel {
             version,
             title,
             description,
-            url,
+            link: url,
             atom_link,
             language,
             web_master,
@@ -292,7 +292,7 @@ mod test {
         let s: &[u8] = include_bytes!("../../test/data/rss_2.0.xml");
         let r = RSSChannel::from_xml_with_buf(Cursor::new(s)).unwrap();
         assert_eq!(r.title, "rss_2.0.channel.title".to_owned());
-        assert_eq!(r.url, "rss_2.0.channel.link".to_owned());
+        assert_eq!(r.link, "rss_2.0.channel.link".to_owned());
         assert_eq!(
             r.description,
             Some("rss_2.0.channel.description".to_owned())
@@ -304,7 +304,7 @@ mod test {
         let s: &[u8] = include_bytes!("../../test/data/3dm.xml");
         let r = RSSChannel::from_xml_with_buf(Cursor::new(s)).unwrap();
         assert_eq!(r.title, "3DM - 新闻中心".to_owned());
-        assert_eq!(r.url, "http://www.3dmgame.com/news/".to_owned());
+        assert_eq!(r.link, "http://www.3dmgame.com/news/".to_owned());
         assert_eq!(
             r.description,
             Some(

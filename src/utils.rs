@@ -1,8 +1,12 @@
+use once_cell::sync::Lazy;
+use regex::Regex;
 use sled::IVec;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+
+static REGEX_HTTP_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"http(s?)://[\w\./:]*").unwrap());
 
 #[inline]
 pub fn ivec_to_str(vec: IVec) -> String {
@@ -28,6 +32,11 @@ pub fn split_filter_empty_join_process<F: FnMut(&mut Vec<String>)>(
     let mut vec = split_vec_filter_empty(s, pat);
     f(&mut vec);
     vec.join(&*pat.to_string())
+}
+
+pub fn find_http_url(url: &str) -> Option<String> {
+    let m = REGEX_HTTP_URL.find(url)?;
+    Some(m.as_str().to_owned())
 }
 
 #[inline]
@@ -108,5 +117,22 @@ mod test {
         assert_eq!(hash(a), hash(a));
         assert_eq!(hash(a), hash(c));
         assert_ne!(hash(a), hash(b));
+    }
+
+    #[test]
+    fn test_find_url() {
+        let r = REGEX_HTTP_URL
+            .find("[http://175.24.205.140:12000/3dm/news](http://175.24.205.140:12000/3dm/news)")
+            .unwrap()
+            .as_str();
+
+        assert_eq!("http://175.24.205.140:12000/3dm/news", r);
+
+        let r1 = REGEX_HTTP_URL
+            .find("http://175.24.205.140:12000/3dm/news")
+            .unwrap()
+            .as_str();
+
+        assert_eq!("http://175.24.205.140:12000/3dm/news", r1);
     }
 }

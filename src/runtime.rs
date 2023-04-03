@@ -3,8 +3,9 @@ use crate::db::{self, Database};
 use crate::fetch::feed::RSSChannel;
 use crate::network_frame::KookEventMessage;
 use crate::network_runtime::BotNetworkEvent;
-use crate::utils::Throttle;
-use crate::{api, fetch, utils, worker};
+use crate::push::{push_info, push_post, push_update};
+use crate::utils::{find_http_url, Throttle};
+use crate::{api, fetch, push, utils};
 use futures_util::FutureExt;
 use futures_util::StreamExt;
 use log::*;
@@ -12,9 +13,8 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::cmp::{self};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::sync::{broadcast, Notify};
 use tokio_util::time::DelayQueue;
@@ -23,13 +23,13 @@ const COMMAND_RSS: &str = "/rss";
 const COMMAND_SUB: &str = "/sub";
 const COMMAND_UNSUB: &str = "/unsub";
 const SPACE: &str = " ";
-const FEED_REFRESH_INTERVAL: u32 = 2 * 60;
+const FEED_REFRESH_INTERVAL: u32 = 10;
 
 #[derive(Error, Debug)]
 pub enum KsbotError {
-    #[error("ksbot 运行时错误: {0}")]
+    #[error("ksbot错误: {0}")]
     Runtime(String),
-    #[error("ksbot 运行时内部错误: {0}")]
+    #[error("ksbot错误: {0}")]
     InnerRuntime(#[from] anyhow::Error),
     #[error("订阅错误: {0}")]
     Feed(#[from] fetch::FeedError),
@@ -52,6 +52,42 @@ impl KsbotRuntime {
         }
     }
 
+    fn help(&self) -> String {
+        "/rss        - 显示当前订阅的 RSS 列表
+/sub        - 订阅一个 RSS: /sub http://example.com/feed.xml
+/unsub      - 退订一个 RSS: /unsub http://example.com/feed.xml"
+            .to_owned()
+    }
+
+    // 订阅
+    async fn command_sub(
+        &self,
+        msg: &KookEventMessage,
+        subscribe_url: &str,
+    ) -> Result<(), KsbotError> {
+        let channel = msg.target_id.to_owned().unwrap();
+        let rss = fetch::pull_feed(subscribe_url).await?;
+        info!("{} 订阅了 {}", channel, subscribe_url);
+        let feed = Feed::from(subscribe_url, &rss);
+        self.db.channel_subscribed(&*channel, feed)?;
+        push_info(&*format!("已订阅: {}", subscribe_url), msg).await?;
+        push_post(channel, &rss.posts[0]).await?;
+        Ok(())
+    }
+
+    // 取消订阅
+    async fn command_unsub(
+        &self,
+        msg: &KookEventMessage,
+        subscribe_url: &str,
+    ) -> Result<(), KsbotError> {
+        let channel = msg.target_id.to_owned().unwrap();
+        self.db.channel_unsubscribed(&*channel, subscribe_url)?;
+        self.db.try_remove_feed(subscribe_url)?;
+        push_info(&*format!("已取消订阅: {}", subscribe_url), msg).await?;
+        Ok(())
+    }
+
     pub async fn subscribe(
         &mut self,
         mut net_rece: broadcast::Receiver<BotNetworkEvent>,
@@ -64,34 +100,36 @@ impl KsbotRuntime {
         loop {
             tokio::select! {
                 feed = queue.next().fuse() => {
-                    let feed = feed.expect("unreachable");
+                    let ifeed = feed.expect("unreachable");
+                    info!("pull feed: {:?}", ifeed);
                     let opportunity = throttle.acquire();
                     let db = self.db.clone();
                     tokio::spawn(async move {
                         opportunity.wait().await;
-                        if let Err(e) = worker::pull_feed_and_push_update(db, feed).await {
+                        if let Err(e) = push::push_update(db, ifeed).await {
                             error!("{}", e);
                         }
                     });
                 }
 
                 _ = feed_interval.tick() => {
+                    info!("feed interval tick..");
                     let feeds = self.db.feed_list()?;
                     for feed in feeds {
-                    let feed_interval = cmp::min(
-                            feed.ttl.map(|ttl| ttl * 60).unwrap_or_default(),
-                            FEED_REFRESH_INTERVAL,
-                    ) as u64 - 1;
-                    queue.enqueue(feed, Duration::from_secs(feed_interval));
-                }
+                        let feed_interval = FEED_REFRESH_INTERVAL as u64;
+                        queue.enqueue(feed, Duration::from_secs(feed_interval));
+                    }
                 },
 
                 net_event = net_rece.recv() => {
                     match net_event  {
                         Ok(BotNetworkEvent::Connect()) => self.on_connect().await?,
-                        Ok(BotNetworkEvent::Message(msg)) => self.on_message(msg).await?,
+                        Ok(BotNetworkEvent::Message(ref msg)) => {
+                            if let Err(e) = self.on_message(msg).await {
+                                push::push_error(msg, e).await?;
+                            } },
                         Ok(BotNetworkEvent::Heart()) => self.on_pong().await?,
-                        Ok(BotNetworkEvent::Error()) => self.on_error()?,
+                        Ok(BotNetworkEvent::Error()) => {},
                         Ok(BotNetworkEvent::Shutdown()) => {
                             info!("Shutting down.");
                             break;
@@ -105,29 +143,6 @@ impl KsbotRuntime {
         Ok(())
     }
 
-    fn help(&self) -> String {
-        "/rss        - 显示当前订阅的 RSS 列表
-/sub        - 订阅一个 RSS: /sub http://example.com/feed.xml
-/unsub      - 退订一个 RSS: /unsub http://example.com/feed.xml"
-            .to_owned()
-    }
-
-    // 订阅
-    async fn command_sub(&self, channel: &str, url: &str) -> Result<(), KsbotError> {
-        let rss = fetch::pull_feed(url).await?;
-        info!("checked {}", url);
-        let feed = Feed::from(&rss);
-        self.db.channel_subscribed(channel, feed)?;
-        Ok(())
-    }
-
-    // 取消订阅
-    async fn command_unsub(&self, channel: &str, url: &str) -> Result<(), KsbotError> {
-        self.db.channel_unsubscribed(channel, url)?;
-        self.db.try_remove_feed(url)?;
-        Ok(())
-    }
-
     async fn on_connect(&mut self) -> Result<(), KsbotError> {
         let me = user_me().await?;
         self.me_info = Some(me);
@@ -138,7 +153,7 @@ impl KsbotRuntime {
         Ok(())
     }
 
-    async fn on_message(&self, msg: KookEventMessage) -> Result<(), anyhow::Error> {
+    async fn on_message(&self, msg: &KookEventMessage) -> Result<(), KsbotError> {
         if let Some(bot) = msg.bot {
             if bot {
                 info!("Bot消息，忽略...");
@@ -151,8 +166,8 @@ impl KsbotRuntime {
             msg.channel_name, msg.nickname, msg.content, msg.typ, msg.msg_timestamp
         );
 
-        let content = &*msg.content.unwrap_or_else(|| "".to_owned());
-        let channel_id = &*msg.target_id.unwrap_or_else(|| "".to_owned());
+        let content = msg.content.to_owned().unwrap_or_else(|| "".to_owned());
+        let channel_id = msg.target_id.to_owned().unwrap_or_else(|| "".to_owned());
         let mut reply = Default::default();
 
         // 参数命令
@@ -160,14 +175,24 @@ impl KsbotRuntime {
             if content.starts_with(COMMAND_SUB) {
                 let cmd_args = content.split(SPACE).collect::<Vec<&str>>();
                 if cmd_args.len() == 2 && !channel_id.is_empty() {
-                    self.command_sub(channel_id, cmd_args[1]).await?;
+                    let url = find_http_url(cmd_args[1].trim());
+                    if let Some(u) = url {
+                        self.command_sub(msg, &*u).await?;
+                    } else {
+                        return Err(KsbotError::Runtime(format!("错误的命令：{0}", content)));
+                    }
                 }
             }
 
             if content.starts_with(COMMAND_UNSUB) {
                 let cmd_args = content.split(SPACE).collect::<Vec<&str>>();
                 if cmd_args.len() == 2 && !channel_id.is_empty() {
-                    self.command_unsub(channel_id, cmd_args[1]).await?;
+                    let url = find_http_url(cmd_args[1].trim());
+                    if let Some(u) = url {
+                        self.command_unsub(msg, &*u).await?;
+                    } else {
+                        return Err(KsbotError::Runtime(format!("错误的命令：{0}", content)));
+                    }
                 }
             }
         }
@@ -176,7 +201,7 @@ impl KsbotRuntime {
         {
             match content.trim() {
                 COMMAND_RSS => {
-                    let feeds = self.db.channel_feed_list(channel_id)?;
+                    let feeds = self.db.channel_feed_list(&*channel_id)?;
                     if feeds.is_empty() {
                         reply = "当前没有任何订阅, 是因为太年轻犯下的错么。".to_owned()
                     } else {
@@ -204,40 +229,43 @@ impl KsbotRuntime {
                 reply,
                 channel_id.to_owned(),
                 None,
-                Some(msg.msg_id.unwrap()),
+                Some(msg.msg_id.clone().unwrap()),
             )
             .await?;
         }
 
         Ok(())
     }
-
-    fn on_error(&self) -> Result<(), KsbotError> {
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Feed {
+    pub subscribe_url: String,
     pub link: String,
     pub title: String,
-    pub down_time: Option<SystemTime>,
+    pub down_time: u64,
     pub ttl: Option<u32>,
     pub posts_hash: Vec<String>,
 }
 
 impl Feed {
-    pub fn from(rss: &RSSChannel) -> Self {
+    pub fn from(url: &str, rss: &RSSChannel) -> Self {
         let posts_hash = rss
             .posts
             .iter()
             .map(|t| utils::hash(&t.link.as_ref().unwrap()))
             .collect();
 
+        let start = SystemTime::now();
+        let since_the_epoch = start
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards");
+
         Self {
+            subscribe_url: url.to_owned(),
             title: rss.title.to_owned(),
-            link: rss.url.to_owned(),
-            down_time: Some(SystemTime::now()),
+            link: rss.link.to_owned(),
+            down_time: since_the_epoch.as_secs(),
             ttl: rss.ttl,
             posts_hash,
         }
@@ -251,14 +279,14 @@ impl Feed {
         let ph_1_diff = ph_1
             .iter()
             .enumerate()
-            .filter(|&t| ph_2.contains(t.1))
+            .filter(|&t| !ph_2.contains(t.1))
             .map(|t| t.0)
             .collect();
 
         let ph_2_diff = ph_2
             .iter()
             .enumerate()
-            .filter(|&t| ph_1.contains(t.1))
+            .filter(|&t| !ph_1.contains(t.1))
             .map(|t| t.0)
             .collect();
 
@@ -279,10 +307,10 @@ impl FetchQueue {
     }
 
     fn enqueue(&mut self, feed: Feed, delay: Duration) -> bool {
-        let exists = self.feeds.contains_key(&feed.link);
+        let exists = self.feeds.contains_key(&feed.subscribe_url);
         if !exists {
-            self.notifies.insert(feed.link.clone(), delay);
-            self.feeds.insert(feed.link.clone(), feed);
+            self.notifies.insert(feed.subscribe_url.clone(), delay);
+            self.feeds.insert(feed.subscribe_url.clone(), feed);
             self.wakeup.notify_waiters();
         }
         !exists
