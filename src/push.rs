@@ -69,10 +69,12 @@ pub async fn push_info(content: &str, msg: &KookEventMessage) -> Result<(), anyh
     Ok(())
 }
 
-pub async fn push_error(msg: &KookEventMessage, err: KsbotError) -> Result<(), anyhow::Error> {
-    let chan_id = msg.target_id.to_owned().unwrap();
-    let quote = msg.msg_id.to_owned().unwrap();
-    http::message_create(format!("{:?}", err), chan_id, None, Some(quote)).await?;
+pub async fn push_error(
+    err: KsbotError,
+    chan_id: String,
+    quote: Option<String>,
+) -> Result<(), anyhow::Error> {
+    http::message_create(format!("{:?}", err), chan_id, None, quote).await?;
 
     Ok(())
 }

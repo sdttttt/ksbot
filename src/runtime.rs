@@ -126,8 +126,11 @@ impl KsbotRuntime {
                         Ok(BotNetworkEvent::Connect()) => self.on_connect().await?,
                         Ok(BotNetworkEvent::Message(ref msg)) => {
                             if let Err(e) = self.on_message(msg).await {
-                                push::push_error(msg, e).await?;
-                            } },
+                                let chan_id = msg.target_id.to_owned().unwrap();
+                                 let quote = msg.msg_id.to_owned().unwrap();
+                                push::push_error(e, chan_id, Some(quote)).await?;
+                            }
+                        },
                         Ok(BotNetworkEvent::Heart()) => self.on_pong().await?,
                         Ok(BotNetworkEvent::Error()) => {},
                         Ok(BotNetworkEvent::Shutdown()) => {
@@ -201,13 +204,13 @@ impl KsbotRuntime {
         {
             match content.trim() {
                 COMMAND_RSS => {
-                    let feeds = self.db.channel_feed_list(&*channel_id)?;
+                    let feeds = self.db.channel_feed_list_friendly(&*channel_id)?;
                     if feeds.is_empty() {
                         reply = "当前没有任何订阅, 是因为太年轻犯下的错么。".to_owned()
                     } else {
                         let show_feeds = feeds
                             .iter()
-                            .map(|s| format!("- {}", s))
+                            .map(|s| format!("- [{}] {}", s.title, s.subscribe_url))
                             .collect::<Vec<String>>();
                         reply = show_feeds.join("\n");
                     }

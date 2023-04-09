@@ -140,7 +140,7 @@ impl Database {
     }
 
     /// 该频道的订阅列表
-    pub fn channel_feed_list(&self, channel: &str) -> Result<Vec<String>, DatabaseError> {
+    pub fn channel_feed_list_friendly(&self, channel: &str) -> Result<Vec<Feed>, DatabaseError> {
         let chan_feed_key = &*channel_feed_key(channel);
         // 该订阅源的频道列表
         let chan_feeds_ivec = self
@@ -154,7 +154,19 @@ impl Database {
             utils::ivec_to_str(chan_feeds_ivec)
         };
 
-        Ok(utils::split_vec_filter_empty(chan_feeds_str, ITEM_PAT))
+        let feed_hashs = utils::split_vec_filter_empty(chan_feeds_str.to_owned(), ITEM_PAT)
+            .iter()
+            .map(|t| format!("{}{}", FEED_KEY_PREFIX, t))
+            .collect::<Vec<String>>();
+
+        let mut feeds = vec![];
+        for feed_key in feed_hashs {
+            if let Some(feed) = self.query_feed_by_key(&*feed_key)? {
+                feeds.push(feed);
+            }
+        }
+
+        Ok(feeds)
     }
 
     /// 该订阅源的频道列表
@@ -234,6 +246,16 @@ impl Database {
         Ok(r)
     }
 
+    #[inline]
+    fn query_feed_by_key(&self, feed_key: &str) -> Result<Option<Feed>, DatabaseError> {
+        let feed_ivec_op = self.inner.get(feed_key)?;
+        if let Some(feed_ivec) = feed_ivec_op {
+            let feed_str = utils::ivec_to_str(feed_ivec);
+            return Ok(Some(serde_json::from_str(&feed_str)?));
+        }
+        Ok(None)
+    }
+
     // 移除订阅源
     #[inline]
     fn remove_feed(&self, subscribe_url: &str) -> Result<(), DatabaseError> {
@@ -299,16 +321,16 @@ mod test {
             ..Default::default()
         };
 
-        let feeds = DB.channel_feed_list(chan).unwrap();
+        let feeds = DB.channel_feed_list_friendly(chan).unwrap();
         assert_eq!(0, feeds.len());
         let chans = DB.feed_channel_list(subscribe_url).unwrap();
         assert_eq!(0, chans.len());
 
         DB.channel_subscribed(chan, feed.to_owned()).unwrap();
 
-        let feeds_1 = DB.channel_feed_list(chan).unwrap();
+        let feeds_1 = DB.channel_feed_list_friendly(chan).unwrap();
         assert_eq!(1, feeds_1.len());
-        assert_eq!(hash("http://b.a"), feeds_1[0]);
+        assert_eq!("http://b.a", feeds_1[0].subscribe_url);
         let chans_1 = DB.feed_channel_list(subscribe_url).unwrap();
         assert_eq!(1, chans_1.len());
         assert_eq!(chan, chans_1[0]);
@@ -319,7 +341,7 @@ mod test {
         DB.channel_unsubscribed("test_chan", &feed.subscribe_url)
             .unwrap();
 
-        let feeds_2 = DB.channel_feed_list(chan).unwrap();
+        let feeds_2 = DB.channel_feed_list_friendly(chan).unwrap();
         assert_eq!(0, feeds_2.len());
         let chans_2 = DB.feed_channel_list(subscribe_url).unwrap();
         assert_eq!(0, chans_2.len());

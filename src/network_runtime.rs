@@ -62,15 +62,16 @@ pub struct BotNetworkRuntime {
 
     // 会话ID
     session_id: Option<String>,
+    // 消息ID
     sn: u64,
 
     /// WebSocket  connection
     ws_write: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
     ws_read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
 
-    // 待处理的事件消息
-    // TODO: 使用Map不太好，后续重构为其他更加适合的有序数据结构来存放事件消息
+    // 待处理的事件消息: Key = 消息的SN
     wait_process_event_map: HashMap<u64, KookWSFrame<Value>>,
+    // 广播事件发送
     event_sender: Option<broadcast::Sender<BotNetworkEvent>>,
     /// 心跳信道
     heart_chan: (Sender<bool>, Receiver<bool>),
@@ -249,6 +250,7 @@ impl BotNetworkRuntime {
 
         loop {
             tokio::select! {
+                // 心跳
                 _ = keeplive_interval.tick() =>  {
                     // 每30秒发送一个ping，然后监听pong_rece是否有响应包传来
                     let ping_frame = KookWSFrame::<HashMap<String, Value>>::ping(self.sn);
@@ -270,6 +272,7 @@ impl BotNetworkRuntime {
                 // WS消息接收
                 message = read.next() => {
                     if let Some(Ok(msg)) = message {
+                        // 解析数据帧
                        let frame = match  KookWSFrame::<Value>::try_from(msg) {
                             Ok(f) => {
                                 // 无效的消息
@@ -283,7 +286,7 @@ impl BotNetworkRuntime {
                             },
                             Err(e) => {
                                 error!("{}", e);
-                                continue;
+                                bail!("消息帧解析：{}", e);
                             },
                        };
 
@@ -327,8 +330,8 @@ impl BotNetworkRuntime {
                             };
                     }
 
-                     // 根据官方文档，只有事件帧会有信令，
-                       // 带信令的数据帧都装进wait_processing_msg_map等待后续处理
+                     // 根据官方文档，只有事件帧会有SN。
+                    // 带SN的数据帧都装进wait_processing_msg_map等待后续处理
                        Some(sn) => {
                         info!("rece sn: {}", sn);
                   // 小于机器人的信令，说明是处理过的消息，丢弃
@@ -354,7 +357,7 @@ impl BotNetworkRuntime {
                                 &WS_MESSAGE => {
                                     // 重新对帧进行序列化，变成事件消息格式
                                     let event_frame = KookWSFrame::<KookEventMessage>::try_from(f).expect("事件消息反序列化失败.");
-                                    // 发送消息给信道
+                                    // 发送消息广播给所有的信道
                                     if let Some(sender) = &self.event_sender {
                                         if let Err(e) = sender.send(BotNetworkEvent::Message(event_frame.d.unwrap())) {
                                             error!("通信运行时消息发送失败：{}", e);

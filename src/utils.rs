@@ -98,14 +98,18 @@ mod test {
 
     #[test]
     fn test_split_vec_filter_empty() {
-        let s = "123123123123;123123123123";
-        let r = split_vec_filter_empty(s.to_owned(), ';');
+        let s = "123123123123;123123123123".to_owned();
+        let r = split_vec_filter_empty(s, ';');
         assert_eq!("123123123123", r[0]);
         assert_eq!("123123123123", r[1]);
 
-        let s1 = "123123123123";
-        let r1 = split_vec_filter_empty(s1.to_owned(), ';');
+        let s1 = "123123123123".to_owned();
+        let r1 = split_vec_filter_empty(s1, ';');
         assert_eq!("123123123123", r1[0]);
+
+        let s2 = "13070225088303411203".to_owned();
+        let r2 = split_vec_filter_empty(s2, ';');
+        assert_eq!("13070225088303411203", r2[0]);
     }
 
     #[test]
