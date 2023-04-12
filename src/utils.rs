@@ -6,7 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-static REGEX_HTTP_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"http(s?)://[\w\./:]*").unwrap());
+static REGEX_HTTP_URL: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"http(s?)://[\w\./:\-$&#]*").unwrap());
 
 #[inline]
 pub fn ivec_to_str(vec: IVec) -> String {
@@ -138,5 +139,12 @@ mod test {
             .as_str();
 
         assert_eq!("http://175.24.205.140:12000/3dm/news", r1);
+
+        let r1 = REGEX_HTTP_URL
+            .find("http://175.24.205.140:12000/nga/forum/-61285727")
+            .unwrap()
+            .as_str();
+
+        assert_eq!("http://175.24.205.140:12000/nga/forum/-61285727", r1);
     }
 }
