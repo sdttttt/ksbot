@@ -357,7 +357,7 @@ fn feed_hash(feed: &Feed) -> String {
 #[cfg(test)]
 mod test {
 
-    use crate::data::Feed;
+    use crate::{data::Feed, utils};
 
     use super::Database;
     use once_cell::sync::Lazy;
@@ -392,16 +392,27 @@ mod test {
         assert_eq!(0, chans.len());
 
         DB.channel_subscribed(chan, feed.to_owned()).unwrap();
-
         let feeds_1 = DB.channel_feed_list(chan).unwrap();
         assert_eq!(1, feeds_1.len());
         assert_eq!("http://b.a", feeds_1[0].subscribe_url);
         let chans_1 = DB.feed_channel_list(subscribe_url).unwrap();
         assert_eq!(1, chans_1.len());
         assert_eq!(chan, chans_1[0].id);
+        assert_eq!(0, chans_1[0].feed_regex.len());
 
         let all_feeds = DB.feed_list().unwrap();
         assert_eq!(1, all_feeds.len());
+
+        DB.update_channel_feed_regex(chan, subscribe_url, "Huawei")
+            .unwrap();
+        let chans_2 = DB.feed_channel_list(subscribe_url).unwrap();
+        assert_eq!(1, chans_2.len());
+        assert_eq!(chan, chans_2[0].id);
+        assert_eq!(1, chans_2[0].feed_regex.len());
+        assert_eq!(
+            Some(&"Huawei".to_owned()),
+            chans_2[0].feed_regex.get(&utils::hash(subscribe_url))
+        );
 
         DB.channel_unsubscribed("test_chan", &feed.subscribe_url)
             .unwrap();

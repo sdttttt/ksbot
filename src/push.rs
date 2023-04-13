@@ -53,7 +53,7 @@ pub async fn push_update(db: Arc<Database>, feed: Feed) -> Result<(), anyhow::Er
 
             // 是否需要过滤
             if let Some(reg_str) = regex_str_op {
-                if is_filter_post(post, reg_str) {
+                if !reg_str.trim().is_empty() && is_filter_post(post, reg_str) {
                     continue;
                 }
             }
