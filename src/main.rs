@@ -14,6 +14,7 @@ use crate::network_runtime::BotNetworkRuntime;
 
 mod api;
 mod conf;
+mod data;
 mod db;
 mod fetch;
 mod network_frame;

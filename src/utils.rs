@@ -25,10 +25,10 @@ pub fn split_vec_filter_empty(s: String, pat: char) -> Vec<String> {
 }
 
 #[inline]
-pub fn split_filter_empty_join_process<F: FnMut(&mut Vec<String>)>(
+pub fn split_filter_empty_join_process(
     s: String,
     pat: char,
-    mut f: F,
+    f: impl FnOnce(&mut Vec<String>),
 ) -> String {
     let mut vec = split_vec_filter_empty(s, pat);
     f(&mut vec);

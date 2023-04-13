@@ -5,9 +5,9 @@ use anyhow::bail;
 use log::info;
 
 use crate::{
+    data::Feed,
     db::Database,
     fetch::{self, pull_feed},
-    runtime::Feed,
 };
 
 pub async fn push_update(db: Arc<Database>, feed: Feed) -> Result<(), anyhow::Error> {
@@ -35,7 +35,7 @@ pub async fn push_update(db: Arc<Database>, feed: Feed) -> Result<(), anyhow::Er
             info!("文章无变化，不推送: {}", &*new_feed.subscribe_url);
         }
         for idx in new_indexs {
-            push_post(ch.to_owned(), &new_rss.posts[idx]).await?;
+            push_post(&ch.id, &new_rss.posts[idx]).await?;
         }
     }
 
@@ -43,7 +43,7 @@ pub async fn push_update(db: Arc<Database>, feed: Feed) -> Result<(), anyhow::Er
 }
 
 pub async fn push_post(
-    chan_id: String,
+    chan_id: &str,
     item: &fetch::item::ChannelItem,
 ) -> Result<(), anyhow::Error> {
     if item.link.is_none() {
@@ -56,7 +56,7 @@ pub async fn push_post(
         item.link.as_ref().unwrap()
     );
 
-    http::message_create(content, chan_id, None, None).await?;
+    http::message_create(content, chan_id.to_owned(), None, None).await?;
 
     Ok(())
 }

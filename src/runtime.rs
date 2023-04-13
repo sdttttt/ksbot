@@ -1,20 +1,19 @@
 use crate::api::http::{user_me, UserMe};
+use crate::data::Feed;
 use crate::db::{self, Database};
-use crate::fetch::feed::RSSChannel;
 use crate::network_frame::KookEventMessage;
 use crate::network_runtime::BotNetworkEvent;
-use crate::push::{push_info, push_post, push_update};
+use crate::push::{push_info, push_post};
 use crate::utils::{find_http_url, Throttle};
-use crate::{api, fetch, push, utils};
+use crate::{api, fetch, push};
 use futures_util::FutureExt;
 use futures_util::StreamExt;
 use log::*;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
-use std::cmp::{self};
+use std::cmp;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::{broadcast, Notify};
 use tokio_util::time::DelayQueue;
@@ -48,7 +47,7 @@ impl KsbotRuntime {
     pub fn new() -> Self {
         Self {
             me_info: None,
-            db: Lazy::new(|| Arc::new(Database::new(None))),
+            db: Lazy::new(|| Arc::new(Database::from_path(None))),
         }
     }
 
@@ -71,7 +70,7 @@ impl KsbotRuntime {
         let feed = Feed::from(subscribe_url, &rss);
         self.db.channel_subscribed(&*channel, feed)?;
         push_info(&*format!("已订阅: {}", subscribe_url), msg).await?;
-        push_post(channel, &rss.posts[0]).await?;
+        push_post(&channel, &rss.posts[0]).await?;
         Ok(())
     }
 
@@ -116,7 +115,10 @@ impl KsbotRuntime {
                     info!("feed interval tick..");
                     let feeds = self.db.feed_list()?;
                     for feed in feeds {
-                        let feed_interval = FEED_REFRESH_INTERVAL as u64;
+                        let feed_interval = cmp::max(
+                            feed.ttl.map(|ttl| ttl * 60).unwrap_or_default(),
+                            FEED_REFRESH_INTERVAL,
+                        ) as u64;
                         queue.enqueue(feed, Duration::from_secs(feed_interval));
                     }
                 },
@@ -204,7 +206,7 @@ impl KsbotRuntime {
         {
             match content.trim() {
                 COMMAND_RSS => {
-                    let feeds = self.db.channel_feed_list_friendly(&*channel_id)?;
+                    let feeds = self.db.channel_feed_list(&*channel_id)?;
                     if feeds.is_empty() {
                         reply = "当前没有任何订阅, 是因为太年轻犯下的错么。".to_owned()
                     } else {
@@ -227,6 +229,7 @@ impl KsbotRuntime {
                 reply = self.help();
             }
         }
+
         if !reply.is_empty() {
             api::http::message_create(
                 reply,
@@ -238,62 +241,6 @@ impl KsbotRuntime {
         }
 
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Feed {
-    pub subscribe_url: String,
-    pub link: String,
-    pub title: String,
-    pub down_time: u64,
-    pub ttl: Option<u32>,
-    pub posts_hash: Vec<String>,
-}
-
-impl Feed {
-    pub fn from(url: &str, rss: &RSSChannel) -> Self {
-        let posts_hash = rss
-            .posts
-            .iter()
-            .map(|t| utils::hash(&t.link.as_ref().unwrap()))
-            .collect();
-
-        let start = SystemTime::now();
-        let since_the_epoch = start
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
-
-        Self {
-            subscribe_url: url.to_owned(),
-            title: rss.title.to_owned(),
-            link: rss.link.to_owned(),
-            down_time: since_the_epoch.as_secs(),
-            ttl: rss.ttl,
-            posts_hash,
-        }
-    }
-
-    // 返回对比的两组feed, post_hash 不同的文章哈希
-    // result.0 调用方 result.1 是参数方
-    pub fn diff_post_index(&self, feed: &Feed) -> (Vec<usize>, Vec<usize>) {
-        let ph_1 = &self.posts_hash;
-        let ph_2 = &feed.posts_hash;
-        let ph_1_diff = ph_1
-            .iter()
-            .enumerate()
-            .filter(|&t| !ph_2.contains(t.1))
-            .map(|t| t.0)
-            .collect();
-
-        let ph_2_diff = ph_2
-            .iter()
-            .enumerate()
-            .filter(|&t| !ph_1.contains(t.1))
-            .map(|t| t.0)
-            .collect();
-
-        (ph_1_diff, ph_2_diff)
     }
 }
 
