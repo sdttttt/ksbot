@@ -180,7 +180,7 @@ pub fn parse_atom_link<'a, B: std::io::BufRead>(
         }
     }
 
-    Ok(href.map(move |href| {
+    Ok(href.map(|href| {
         if let Some(rel) = rel {
             match rel {
                 "alternate" => AtomLink::Alternate(href),

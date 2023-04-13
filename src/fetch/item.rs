@@ -5,7 +5,7 @@ use quick_xml::{events::Event, Reader};
 use serde::{Deserialize, Serialize};
 
 use super::buf::BufPool;
-use super::utils::TextOrCData;
+use super::utils::{parse_atom_link, AtomLink, TextOrCData};
 use super::FromXmlWithReader;
 use super::FromXmlWithStr;
 use super::SkipThisElement;
@@ -59,36 +59,44 @@ impl FromXmlWithReader for FeedPost {
         bufs: &BufPool,
         reader: &mut Reader<B>,
     ) -> quick_xml::Result<Self> {
-        let mut title = None;
-        let mut description = None;
-        let mut pub_date = None;
-        let mut guid = None;
-        let mut link = None;
-        let mut author = None;
-        let mut category = Vec::<String>::new();
+        let mut post = FeedPost::default();
 
         reader.trim_text(true);
         let mut buf = bufs.pop();
 
         loop {
             match reader.read_event(&mut buf) {
+                Ok(Event::Empty(ref ce)) => match reader.decode(ce.local_name())? {
+                    "link" => {
+                        if let Some(AtomLink::Alternate(l)) =
+                            parse_atom_link(reader, ce.attributes())?
+                        {
+                            post.link = Some(l);
+                        }
+                    }
+
+                    _ => (),
+                },
+
                 Ok(Event::Start(ref e)) => match reader.decode(e.name())? {
-                    "title" => title = TextOrCData::from_xml_with_reader(bufs, reader)?,
+                    "title" => post.title = TextOrCData::from_xml_with_reader(bufs, reader)?,
 
-                    "pubDate" => pub_date = TextOrCData::from_xml_with_reader(bufs, reader)?,
+                    "pubDate" => post.pub_date = TextOrCData::from_xml_with_reader(bufs, reader)?,
 
-                    "guid" => guid = TextOrCData::from_xml_with_reader(bufs, reader)?,
+                    "guid" => post.guid = TextOrCData::from_xml_with_reader(bufs, reader)?,
 
-                    "link" => link = TextOrCData::from_xml_with_reader(bufs, reader)?,
+                    "link" => post.link = TextOrCData::from_xml_with_reader(bufs, reader)?,
 
-                    "description" => description = TextOrCData::from_xml_with_reader(bufs, reader)?,
+                    "description" => {
+                        post.description = TextOrCData::from_xml_with_reader(bufs, reader)?
+                    }
 
-                    "author" => author = TextOrCData::from_xml_with_reader(bufs, reader)?,
+                    "author" => post.author = TextOrCData::from_xml_with_reader(bufs, reader)?,
 
                     "category" => {
                         let category_item = TextOrCData::from_xml_with_reader(bufs, reader)?;
                         if let Some(c) = category_item {
-                            category.push(c);
+                            post.category.push(c);
                         }
                     }
 
@@ -106,15 +114,7 @@ impl FromXmlWithReader for FeedPost {
             buf.clear();
         }
 
-        Ok(Self {
-            title,
-            description,
-            pub_date,
-            guid,
-            link,
-            author,
-            category,
-        })
+        Ok(post)
     }
 }
 

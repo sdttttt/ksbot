@@ -9,7 +9,7 @@ use super::utils::attrs_get_str;
 use super::utils::{parse_atom_link, AtomLink, NumberData, TextOrCData};
 use super::{FromXmlWithBufRead, FromXmlWithReader, FromXmlWithStr, SkipThisElement};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(rename = "rss")]
 pub struct Feed {
     #[serde(skip)]
@@ -87,19 +87,7 @@ impl FromXmlWithReader for Feed {
         bufs: &BufPool,
         reader: &mut Reader<B>,
     ) -> quick_xml::Result<Self> {
-        let mut version = None;
-        let mut title = "".to_owned();
-        let mut description = None;
-        let mut url = "".to_owned();
-        let mut atom_link = None;
-        let mut language = None;
-        let mut web_master = None;
-        let mut last_build_date = None;
-        let mut ttl = None;
-        let mut image = None;
-        let mut posts = Vec::<FeedPost>::new();
-        let mut copyright = None;
-        let mut generator = None;
+        let mut feed = Feed::default();
 
         reader.trim_text(true);
 
@@ -109,8 +97,8 @@ impl FromXmlWithReader for Feed {
             match reader.read_event(&mut buf) {
                 Ok(Event::Empty(ref ce)) => match reader.decode(ce.local_name())? {
                     "link" => match parse_atom_link(reader, ce.attributes())? {
-                        Some(AtomLink::Alternate(link)) => url = link,
-                        Some(AtomLink::Source(link)) => atom_link = Some(link),
+                        Some(AtomLink::Alternate(link)) => feed.link = link,
+                        Some(AtomLink::Source(link)) => feed.atom_link = Some(link),
                         _ => {}
                     },
 
@@ -118,50 +106,56 @@ impl FromXmlWithReader for Feed {
                 },
 
                 Ok(Event::Start(ref re)) => match reader.decode(re.local_name())? {
-                    "rss" => version = attrs_get_str(&reader, re.attributes(), "version")?,
+                    "rss" => feed.version = attrs_get_str(&reader, re.attributes(), "version")?,
 
                     "channel" => {}
 
                     "title" => {
-                        title = TextOrCData::from_xml_with_reader(bufs, reader)?
+                        feed.title = TextOrCData::from_xml_with_reader(bufs, reader)?
                             .expect("没有title的订阅源？！");
                     }
 
                     "description" => {
-                        description = TextOrCData::from_xml_with_reader(bufs, reader)?;
+                        feed.description = TextOrCData::from_xml_with_reader(bufs, reader)?;
                     }
 
                     "link" => {
                         match TextOrCData::from_xml_with_reader(bufs, reader)? {
-                            Some(s) => url = s,
+                            Some(s) => feed.link = s,
                             None => match parse_atom_link(reader, re.attributes())? {
-                                Some(AtomLink::Source(e)) => atom_link = Some(e),
-                                Some(AtomLink::Alternate(e)) => url = e,
+                                Some(AtomLink::Source(e)) => feed.atom_link = Some(e),
+                                Some(AtomLink::Alternate(e)) => feed.link = e,
                                 _ => (),
                             },
                         };
                     }
 
-                    "language" => language = TextOrCData::from_xml_with_reader(bufs, reader)?,
+                    "language" => feed.language = TextOrCData::from_xml_with_reader(bufs, reader)?,
 
-                    "webMaster" => web_master = TextOrCData::from_xml_with_reader(bufs, reader)?,
-
-                    "generator" => generator = TextOrCData::from_xml_with_reader(bufs, reader)?,
-
-                    "lastBuildDate" => {
-                        last_build_date = TextOrCData::from_xml_with_reader(bufs, reader)?
+                    "webMaster" => {
+                        feed.web_master = TextOrCData::from_xml_with_reader(bufs, reader)?
                     }
 
-                    "ttl" => ttl = NumberData::from_xml_with_reader(bufs, reader)?,
+                    "generator" => {
+                        feed.generator = TextOrCData::from_xml_with_reader(bufs, reader)?
+                    }
 
-                    "image" => image = Some(ChannelImage::from_xml_with_reader(bufs, reader)?),
+                    "lastBuildDate" => {
+                        feed.last_build_date = TextOrCData::from_xml_with_reader(bufs, reader)?
+                    }
+
+                    "ttl" => feed.ttl = NumberData::from_xml_with_reader(bufs, reader)?,
+
+                    "image" => feed.image = Some(ChannelImage::from_xml_with_reader(bufs, reader)?),
 
                     "item" | "entry" => {
                         let item = FeedPost::from_xml_with_reader(bufs, reader)?;
-                        posts.push(item);
+                        feed.posts.push(item);
                     }
 
-                    "copyright" => copyright = TextOrCData::from_xml_with_reader(bufs, reader)?,
+                    "copyright" => {
+                        feed.copyright = TextOrCData::from_xml_with_reader(bufs, reader)?
+                    }
 
                     _ => {
                         SkipThisElement::from_xml_with_reader(bufs, reader)?;
@@ -175,21 +169,7 @@ impl FromXmlWithReader for Feed {
             buf.clear();
         }
 
-        Ok(Self {
-            version,
-            title,
-            description,
-            link: url,
-            atom_link,
-            language,
-            web_master,
-            generator,
-            last_build_date,
-            ttl,
-            image,
-            posts,
-            copyright,
-        })
+        Ok(feed)
     }
 }
 
