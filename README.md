@@ -14,6 +14,7 @@
 /rss       - 显示当前订阅的 RSS 列表
 /sub       - 订阅一个 RSS: /sub http://example.com/feed.xml
 /unsub     - 退订一个 RSS: /unsub http://example.com/feed.xml
+/reg       - 设置过滤正则: /reg http://example.com/feed.xml (华为|蒂法)
 ```
 
 ## build
