@@ -1,5 +1,5 @@
 use crate::api::http::{user_me, UserMe};
-use crate::data::Feed;
+use crate::data::SubscribeFeed;
 use crate::db::{self, Database};
 use crate::network_frame::KookEventMessage;
 use crate::network_runtime::BotNetworkEvent;
@@ -77,7 +77,7 @@ impl KsbotRuntime {
         let channel = msg.target_id.to_owned().unwrap();
         let rss = fetch::pull_feed(subscribe_url).await?;
         info!("{} 订阅了 {}", channel, subscribe_url);
-        let feed = Feed::from(subscribe_url, &rss);
+        let feed = SubscribeFeed::from(subscribe_url, &rss);
         self.db.channel_subscribed(&*channel, feed)?;
         push_info(&*format!("已订阅: {}", subscribe_url), msg).await?;
         push_post(&channel, &rss.posts[0]).await?;
@@ -291,7 +291,7 @@ impl KsbotRuntime {
 
 #[derive(Default)]
 struct FetchQueue {
-    feeds: HashMap<String, Feed>,
+    feeds: HashMap<String, SubscribeFeed>,
     notifies: DelayQueue<String>,
     wakeup: Notify,
 }
@@ -301,7 +301,7 @@ impl FetchQueue {
         Self::default()
     }
 
-    fn enqueue(&mut self, feed: Feed, delay: Duration) -> bool {
+    fn enqueue(&mut self, feed: SubscribeFeed, delay: Duration) -> bool {
         let exists = self.feeds.contains_key(&feed.subscribe_url);
         if !exists {
             self.notifies.insert(feed.subscribe_url.clone(), delay);
@@ -311,7 +311,7 @@ impl FetchQueue {
         !exists
     }
 
-    async fn next(&mut self) -> Result<Feed, tokio::time::error::Error> {
+    async fn next(&mut self) -> Result<SubscribeFeed, tokio::time::error::Error> {
         loop {
             if let Some(feed_id) = self.notifies.next().await {
                 let feed = self.feeds.remove(feed_id.get_ref()).unwrap();

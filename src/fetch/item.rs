@@ -12,7 +12,7 @@ use super::SkipThisElement;
 
 #[derive(Debug, Clone, Serialize, Default, Deserialize)]
 #[serde(rename = "item")]
-pub struct ChannelItem {
+pub struct FeedPost {
     pub title: Option<String>,
     pub description: Option<String>,
     #[serde(rename = "pubDate")]
@@ -23,7 +23,7 @@ pub struct ChannelItem {
     pub category: Vec<String>,
 }
 
-impl FromXmlWithStr for ChannelItem {
+impl FromXmlWithStr for FeedPost {
     /// `Self::from_xml_with_reader(bufs, &mut reader)`
     ///
     /// The `Self` is a reference to the current type, which is `ChannelItem`
@@ -36,14 +36,14 @@ impl FromXmlWithStr for ChannelItem {
     /// Returns:
     ///
     /// A ChannelItem
-    fn from_xml_with_str(bufs: &BufPool, text: &str) -> quick_xml::Result<ChannelItem> {
+    fn from_xml_with_str(bufs: &BufPool, text: &str) -> quick_xml::Result<FeedPost> {
         let mut reader = Reader::from_str(text);
 
         Self::from_xml_with_reader(bufs, &mut reader)
     }
 }
 
-impl FromXmlWithReader for ChannelItem {
+impl FromXmlWithReader for FeedPost {
     /// > The function reads the XML events from the reader, and when it encounters a start tag, it calls
     /// the `from_xml_with_reader` function of the corresponding field
     ///
@@ -118,10 +118,10 @@ impl FromXmlWithReader for ChannelItem {
     }
 }
 
-impl FromStr for ChannelItem {
+impl FromStr for FeedPost {
     type Err = quick_xml::Error;
 
-    fn from_str(text: &str) -> Result<ChannelItem> {
+    fn from_str(text: &str) -> Result<FeedPost> {
         let bufs = BufPool::new(64, 8192);
 
         Self::from_xml_with_str(&bufs, text)

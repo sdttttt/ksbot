@@ -10,7 +10,7 @@ use quick_xml::events::Event as XmlEvent;
 use quick_xml::Reader as XmlReader;
 
 use self::buf::BufPool;
-use self::feed::RSSChannel;
+use self::feed::Feed;
 
 pub trait FromXmlWithStr: Sized {
     fn from_xml_with_str(bufs: &BufPool, text: &str) -> quick_xml::Result<Self>;

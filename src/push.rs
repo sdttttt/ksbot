@@ -4,8 +4,7 @@ use std::{
 };
 
 use crate::{
-    api::http, fetch::item::ChannelItem, network_frame::KookEventMessage, runtime::KsbotError,
-    utils,
+    api::http, fetch::item::FeedPost, network_frame::KookEventMessage, runtime::KsbotError, utils,
 };
 use anyhow::bail;
 use log::info;
@@ -13,7 +12,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 use crate::{
-    data::Feed,
+    data::SubscribeFeed,
     db::Database,
     fetch::{self, pull_feed},
 };
@@ -22,14 +21,14 @@ use crate::{
 static REGEX_FILTER_MAP: Lazy<Mutex<HashMap<String, Regex>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-pub async fn push_update(db: Arc<Database>, feed: Feed) -> Result<(), anyhow::Error> {
+pub async fn push_update(db: Arc<Database>, feed: SubscribeFeed) -> Result<(), anyhow::Error> {
     info!("pull {}", &*feed.subscribe_url);
     let new_rss = match pull_feed(&*feed.subscribe_url).await {
         Ok(f) => f,
         Err(e) => bail!("Failed to pull feed: {:?}", e),
     };
 
-    let new_feed = Feed::from(&feed.subscribe_url, &new_rss);
+    let new_feed = SubscribeFeed::from(&feed.subscribe_url, &new_rss);
     let old_feed = db.update_or_create_feed(&new_feed)?;
 
     let chans = db.feed_channel_list(&*new_feed.subscribe_url)?;
@@ -65,10 +64,7 @@ pub async fn push_update(db: Arc<Database>, feed: Feed) -> Result<(), anyhow::Er
     Ok(())
 }
 
-pub async fn push_post(
-    chan_id: &str,
-    item: &fetch::item::ChannelItem,
-) -> Result<(), anyhow::Error> {
+pub async fn push_post(chan_id: &str, item: &fetch::item::FeedPost) -> Result<(), anyhow::Error> {
     if item.link.is_none() {
         return Ok(());
     }
@@ -102,7 +98,7 @@ pub async fn push_error(
     Ok(())
 }
 
-fn is_filter_post(t: &ChannelItem, reg_str: &str) -> bool {
+fn is_filter_post(t: &FeedPost, reg_str: &str) -> bool {
     let mut filter_map = REGEX_FILTER_MAP.lock().unwrap();
     let reg = match filter_map.get(reg_str) {
         Some(reg) => reg,

@@ -3,7 +3,7 @@ use sled::transaction::TransactionError;
 use sled::IVec;
 use thiserror::Error;
 
-use crate::data::{ChannelFeeds, Feed};
+use crate::data::{ChannelSubFeeds, SubscribeFeed};
 use crate::utils;
 const DEFAULT_DATABASE_PATH: &str = "__bot.db";
 
@@ -47,7 +47,11 @@ impl Database {
     }
 
     // 频道订阅
-    pub fn channel_subscribed(&self, channel_id: &str, feed: Feed) -> Result<(), StoreError> {
+    pub fn channel_subscribed(
+        &self,
+        channel_id: &str,
+        feed: SubscribeFeed,
+    ) -> Result<(), StoreError> {
         // 没有该订阅源先加入订阅列表
         if !self.contains_feed(&feed.subscribe_url)? {
             self.update_or_create_feed(&feed)?;
@@ -127,14 +131,17 @@ impl Database {
     }
 
     // 创建或者更新feed通过hash
-    pub fn update_or_create_feed(&self, feed: &Feed) -> Result<Option<Feed>, StoreError> {
+    pub fn update_or_create_feed(
+        &self,
+        feed: &SubscribeFeed,
+    ) -> Result<Option<SubscribeFeed>, StoreError> {
         let feed_v = serde_json::to_string(feed)?;
         let feed_old = self
             .inner
             .insert(&*feed_key(&feed.subscribe_url), &*feed_v)?;
         let result = feed_old.map(|t| {
             let s = utils::ivec_to_str(t);
-            serde_json::from_str::<Feed>(&*s).expect("feed序列化失败")
+            serde_json::from_str::<SubscribeFeed>(&*s).expect("feed序列化失败")
         });
 
         Ok(result)
@@ -144,15 +151,15 @@ impl Database {
     pub fn update_or_create_channel(
         &self,
         channel_id: &str,
-    ) -> Result<Option<ChannelFeeds>, StoreError> {
-        let chan_feeds_v = serde_json::to_string(&ChannelFeeds::from_id(channel_id.to_owned()))?;
+    ) -> Result<Option<ChannelSubFeeds>, StoreError> {
+        let chan_feeds_v = serde_json::to_string(&ChannelSubFeeds::from_id(channel_id.to_owned()))?;
         let old_chan_feeds_v = self
             .inner
             .insert(&*channel_key(channel_id), &*chan_feeds_v)?;
 
         let result = old_chan_feeds_v.map(|t| {
             let s = utils::ivec_to_str(t);
-            serde_json::from_str::<ChannelFeeds>(&*s).expect("feed序列化失败")
+            serde_json::from_str::<ChannelSubFeeds>(&*s).expect("feed序列化失败")
         });
 
         Ok(result)
@@ -170,7 +177,7 @@ impl Database {
         }
     }
 
-    pub fn feed_list(&self) -> Result<Vec<Feed>, StoreError> {
+    pub fn feed_list(&self) -> Result<Vec<SubscribeFeed>, StoreError> {
         let iter = self.inner.scan_prefix(FEED_KEY_PREFIX);
 
         let feeds = iter
@@ -179,13 +186,13 @@ impl Database {
             // 把value转成String
             .map(|t| utils::ivec_to_str(t.1))
             // 序列化
-            .map(|t| serde_json::from_str::<Feed>(&t).expect("feed 反序列化错误"))
-            .collect::<Vec<Feed>>();
+            .map(|t| serde_json::from_str::<SubscribeFeed>(&t).expect("feed 反序列化错误"))
+            .collect::<Vec<SubscribeFeed>>();
         Ok(feeds)
     }
 
     /// 该频道的订阅列表
-    pub fn channel_feed_list(&self, channel_id: &str) -> Result<Vec<Feed>, StoreError> {
+    pub fn channel_feed_list(&self, channel_id: &str) -> Result<Vec<SubscribeFeed>, StoreError> {
         // 该订阅源的频道列表
         let mut feed_hashs: Vec<String> = vec![];
         match self.chan_operaiton(&channel_key(channel_id), |t| {
@@ -214,7 +221,10 @@ impl Database {
     }
 
     /// 该订阅源的频道列表
-    pub fn feed_channel_list(&self, subscribe_url: &str) -> Result<Vec<ChannelFeeds>, StoreError> {
+    pub fn feed_channel_list(
+        &self,
+        subscribe_url: &str,
+    ) -> Result<Vec<ChannelSubFeeds>, StoreError> {
         let mut channel_ids: Vec<String> = vec![];
         match self.feed_operaiton(&feed_key(subscribe_url), |t| {
             channel_ids = t.channel_ids.clone()
@@ -245,7 +255,7 @@ impl Database {
     fn chan_operaiton(
         &self,
         chan_key: &str,
-        f: impl FnOnce(&mut ChannelFeeds),
+        f: impl FnOnce(&mut ChannelSubFeeds),
     ) -> Result<(), StoreError> {
         // 该频道的订阅列表
         let chans_feed_ivec = self
@@ -259,7 +269,7 @@ impl Database {
             utils::ivec_to_str(chans_feed_ivec)
         };
 
-        let mut chan_feeds = serde_json::from_str::<ChannelFeeds>(&chans_feed_str)?;
+        let mut chan_feeds = serde_json::from_str::<ChannelSubFeeds>(&chans_feed_str)?;
         f(&mut chan_feeds);
         let post_chan_feeds_str = serde_json::to_string(&chan_feeds)?;
 
@@ -268,7 +278,11 @@ impl Database {
     }
 
     // 对订阅源的频道列表操作，会写入
-    fn feed_operaiton(&self, feed_key: &str, f: impl FnOnce(&mut Feed)) -> Result<(), StoreError> {
+    fn feed_operaiton(
+        &self,
+        feed_key: &str,
+        f: impl FnOnce(&mut SubscribeFeed),
+    ) -> Result<(), StoreError> {
         // 该订阅源的频道列表
         let feed_chans_ivec = self
             .inner
@@ -281,7 +295,7 @@ impl Database {
             utils::ivec_to_str(feed_chans_ivec)
         };
 
-        let mut feed = serde_json::from_str::<Feed>(&feed_chans_str)?;
+        let mut feed = serde_json::from_str::<SubscribeFeed>(&feed_chans_str)?;
         f(&mut feed);
         let post_feed_str = serde_json::to_string(&feed)?;
 
@@ -306,7 +320,7 @@ impl Database {
 
     // 查询feed通过feed_key
     #[inline]
-    fn query_feed_by_key(&self, feed_key: &str) -> Result<Option<Feed>, StoreError> {
+    fn query_feed_by_key(&self, feed_key: &str) -> Result<Option<SubscribeFeed>, StoreError> {
         let feed_ivec_op = self.inner.get(feed_key)?;
         if let Some(feed_ivec) = feed_ivec_op {
             let feed_str = utils::ivec_to_str(feed_ivec);
@@ -317,7 +331,7 @@ impl Database {
 
     // 查询channel通过chan_key
     #[inline]
-    fn query_channel_by_id(&self, chan_key: &str) -> Result<Option<ChannelFeeds>, StoreError> {
+    fn query_channel_by_id(&self, chan_key: &str) -> Result<Option<ChannelSubFeeds>, StoreError> {
         let chan_ivec_op = self.inner.get(chan_key)?;
         if let Some(chan_ivec) = chan_ivec_op {
             let chan_str = utils::ivec_to_str(chan_ivec);
@@ -350,14 +364,14 @@ fn channel_key(channel_id: &str) -> String {
 }
 
 #[inline]
-fn feed_hash(feed: &Feed) -> String {
+fn feed_hash(feed: &SubscribeFeed) -> String {
     utils::hash(&feed.subscribe_url)
 }
 
 #[cfg(test)]
 mod test {
 
-    use crate::{data::Feed, utils};
+    use crate::{data::SubscribeFeed, utils};
 
     use super::Database;
     use once_cell::sync::Lazy;
@@ -379,7 +393,7 @@ mod test {
         let link = "http://a.b";
         let subscribe_url = "http://b.a";
         let chan = "test_chan";
-        let feed = Feed {
+        let feed = SubscribeFeed {
             title: "test_feed".to_owned(),
             link: link.to_owned(),
             subscribe_url: subscribe_url.to_owned(),
@@ -436,7 +450,7 @@ mod test {
     #[test]
     fn test_serde() {
         let link = "http://a.b";
-        let feed = Feed {
+        let feed = SubscribeFeed {
             title: "test_feed".to_owned(),
             link: link.to_owned(),
             ..Default::default()
@@ -444,7 +458,7 @@ mod test {
 
         let json = serde_json::to_string(&feed).unwrap();
         assert_ne!(json, "".to_owned());
-        let feed2 = serde_json::from_str::<Feed>(&json).unwrap();
+        let feed2 = serde_json::from_str::<SubscribeFeed>(&json).unwrap();
         assert_eq!(link, feed2.link);
         assert_eq!("test_feed", feed2.title);
     }

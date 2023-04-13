@@ -5,10 +5,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{fetch::feed::RSSChannel, utils};
+use crate::{fetch::feed::Feed, utils};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Feed {
+pub struct SubscribeFeed {
     // 订阅URL
     pub subscribe_url: String,
     // link
@@ -22,8 +22,8 @@ pub struct Feed {
     pub channel_ids: Vec<String>,
 }
 
-impl Feed {
-    pub fn from(url: &str, rss: &RSSChannel) -> Self {
+impl SubscribeFeed {
+    pub fn from(url: &str, rss: &Feed) -> Self {
         let posts_hash = rss
             .posts
             .iter()
@@ -48,7 +48,7 @@ impl Feed {
 
     // 返回对比的两组feed, post_hash 不同的文章哈希
     // result.0 调用方 result.1 是参数方
-    pub fn diff_post_index(&self, feed: &Feed) -> (Vec<usize>, Vec<usize>) {
+    pub fn diff_post_index(&self, feed: &SubscribeFeed) -> (Vec<usize>, Vec<usize>) {
         let ph_1 = &self.posts_hash;
         let ph_2 = &feed.posts_hash;
         let ph_1_diff = ph_1
@@ -69,24 +69,24 @@ impl Feed {
     }
 }
 
-impl TryFrom<&Feed> for String {
+impl TryFrom<&SubscribeFeed> for String {
     type Error = serde_json::Error;
 
-    fn try_from(value: &Feed) -> Result<Self, Self::Error> {
+    fn try_from(value: &SubscribeFeed) -> Result<Self, Self::Error> {
         let r = serde_json::to_string(value)?;
         Ok(r)
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ChannelFeeds {
+pub struct ChannelSubFeeds {
     pub id: String,
     pub feed_hash: Vec<String>,
     // K = feed_hash V = regex expression
     pub feed_regex: HashMap<String, String>,
 }
 
-impl ChannelFeeds {
+impl ChannelSubFeeds {
     pub fn from_id(id: String) -> Self {
         Self {
             id,
@@ -96,10 +96,10 @@ impl ChannelFeeds {
     }
 }
 
-impl TryFrom<&ChannelFeeds> for String {
+impl TryFrom<&ChannelSubFeeds> for String {
     type Error = serde_json::Error;
 
-    fn try_from(value: &ChannelFeeds) -> Result<Self, Self::Error> {
+    fn try_from(value: &ChannelSubFeeds) -> Result<Self, Self::Error> {
         let r = serde_json::to_string(value)?;
         Ok(r)
     }

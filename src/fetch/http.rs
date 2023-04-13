@@ -3,7 +3,7 @@ use std::time::Duration;
 use once_cell::sync::OnceCell;
 use thiserror::Error;
 
-use super::{feed::RSSChannel, FromXmlWithBufRead};
+use super::{feed::Feed, FromXmlWithBufRead};
 
 static RESP_SIZE_LIMIT: OnceCell<u64> = OnceCell::new();
 static CLIENT: OnceCell<reqwest::Client> = OnceCell::new();
@@ -20,7 +20,7 @@ pub enum FeedError {
     TooLarge(u64),
 }
 
-pub async fn pull_feed(url: &str) -> Result<RSSChannel, FeedError> {
+pub async fn pull_feed(url: &str) -> Result<Feed, FeedError> {
     let mut resp = CLIENT
         .get()
         .expect("CLIENT not initialized")
@@ -47,7 +47,7 @@ pub async fn pull_feed(url: &str) -> Result<RSSChannel, FeedError> {
             }
             buf.extend_from_slice(&bytes);
         }
-        super::RSSChannel::from_xml_with_buf(std::io::Cursor::new(buf))?
+        super::Feed::from_xml_with_buf(std::io::Cursor::new(buf))?
     };
 
     Ok(rss)

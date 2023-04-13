@@ -4,14 +4,14 @@ use quick_xml::{events::Event, Reader};
 use serde::{Deserialize, Serialize};
 
 use super::buf::BufPool;
-use super::item::ChannelItem;
+use super::item::FeedPost;
 use super::utils::attrs_get_str;
 use super::utils::{parse_atom_link, AtomLink, NumberData, TextOrCData};
 use super::{FromXmlWithBufRead, FromXmlWithReader, FromXmlWithStr, SkipThisElement};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "rss")]
-pub struct RSSChannel {
+pub struct Feed {
     #[serde(skip)]
     pub version: Option<String>,
 
@@ -38,12 +38,12 @@ pub struct RSSChannel {
 
     pub image: Option<ChannelImage>,
 
-    pub posts: Vec<ChannelItem>,
+    pub posts: Vec<FeedPost>,
 
     pub copyright: Option<String>,
 }
 
-impl FromXmlWithStr for RSSChannel {
+impl FromXmlWithStr for Feed {
     /// > It takes a string, creates a reader from it, and then calls the function that takes a reader
     ///
     /// Arguments:
@@ -54,14 +54,14 @@ impl FromXmlWithStr for RSSChannel {
     /// Returns:
     ///
     /// A `fast_xml::Result<RSSChannel>`
-    fn from_xml_with_str(bufs: &BufPool, text: &str) -> quick_xml::Result<RSSChannel> {
+    fn from_xml_with_str(bufs: &BufPool, text: &str) -> quick_xml::Result<Feed> {
         let mut reader = Reader::from_str(text);
 
         Self::from_xml_with_reader(bufs, &mut reader)
     }
 }
 
-impl FromXmlWithBufRead for RSSChannel {
+impl FromXmlWithBufRead for Feed {
     fn from_xml_with_buf<B: std::io::BufRead>(buf_read: B) -> quick_xml::Result<Self> {
         let bufs: BufPool = Default::default();
         let mut reader = Reader::from_reader(buf_read);
@@ -69,7 +69,7 @@ impl FromXmlWithBufRead for RSSChannel {
     }
 }
 
-impl FromXmlWithReader for RSSChannel {
+impl FromXmlWithReader for Feed {
     /// > Read the XML document, and for each element, if it's a `<rss>` element, get the `version`
     /// attribute, if it's a `<channel>` element, read the `<title>`, `<description>`, `<link>` and
     /// `<item>` elements, and if it's a `<item>` element, read the `<title>`, `<description>`, `<link>`,
@@ -97,7 +97,7 @@ impl FromXmlWithReader for RSSChannel {
         let mut last_build_date = None;
         let mut ttl = None;
         let mut image = None;
-        let mut posts = Vec::<ChannelItem>::new();
+        let mut posts = Vec::<FeedPost>::new();
         let mut copyright = None;
         let mut generator = None;
 
@@ -107,104 +107,70 @@ impl FromXmlWithReader for RSSChannel {
 
         loop {
             match reader.read_event(&mut buf) {
-                Ok(Event::Start(ref re)) => match reader.decode(re.local_name())? {
-                    "rss" => version = attrs_get_str(&reader, re.attributes(), "version")?,
-
-                    "channel" => {
-                        let mut cbuf = bufs.pop();
-
-                        loop {
-                            match reader.read_event(&mut cbuf) {
-                                Ok(Event::Empty(ref ce)) => match reader.decode(ce.local_name())? {
-                                    "link" => match parse_atom_link(reader, ce.attributes())? {
-                                        Some(AtomLink::Alternate(link)) => url = link,
-                                        Some(AtomLink::Source(link)) => atom_link = Some(link),
-                                        _ => {}
-                                    },
-
-                                    _ => (),
-                                },
-
-                                Ok(Event::Start(ref ce)) => match reader.decode(ce.local_name())? {
-                                    "title" => {
-                                        title = TextOrCData::from_xml_with_reader(bufs, reader)?
-                                            .expect("没有title的订阅源？！");
-                                    }
-
-                                    "description" => {
-                                        description =
-                                            TextOrCData::from_xml_with_reader(bufs, reader)?;
-                                    }
-
-                                    "link" => {
-                                        match TextOrCData::from_xml_with_reader(bufs, reader)? {
-                                            Some(s) => url = s,
-                                            None => {
-                                                match parse_atom_link(reader, ce.attributes())? {
-                                                    Some(AtomLink::Source(e)) => {
-                                                        atom_link = Some(e)
-                                                    }
-                                                    Some(AtomLink::Alternate(e)) => url = e,
-                                                    _ => (),
-                                                }
-                                            }
-                                        };
-                                    }
-
-                                    "language" => {
-                                        language = TextOrCData::from_xml_with_reader(bufs, reader)?
-                                    }
-
-                                    "webMaster" => {
-                                        web_master =
-                                            TextOrCData::from_xml_with_reader(bufs, reader)?
-                                    }
-
-                                    "generator" => {
-                                        generator = TextOrCData::from_xml_with_reader(bufs, reader)?
-                                    }
-
-                                    "lastBuildDate" => {
-                                        last_build_date =
-                                            TextOrCData::from_xml_with_reader(bufs, reader)?
-                                    }
-
-                                    "ttl" => ttl = NumberData::from_xml_with_reader(bufs, reader)?,
-
-                                    "image" => {
-                                        image =
-                                            Some(ChannelImage::from_xml_with_reader(bufs, reader)?)
-                                    }
-
-                                    "item" => {
-                                        let item = ChannelItem::from_xml_with_reader(bufs, reader)?;
-                                        posts.push(item);
-                                    }
-
-                                    "copyright" => {
-                                        copyright = TextOrCData::from_xml_with_reader(bufs, reader)?
-                                    }
-
-                                    _ => {
-                                        SkipThisElement::from_xml_with_reader(bufs, reader)?;
-                                    }
-                                },
-
-                                Ok(Event::Eof | Event::End(_)) => break,
-                                Ok(_) => (),
-                                Err(e) => return Err(e),
-                            }
-                            cbuf.clear()
-                        }
-                    }
+                Ok(Event::Empty(ref ce)) => match reader.decode(ce.local_name())? {
+                    "link" => match parse_atom_link(reader, ce.attributes())? {
+                        Some(AtomLink::Alternate(link)) => url = link,
+                        Some(AtomLink::Source(link)) => atom_link = Some(link),
+                        _ => {}
+                    },
 
                     _ => (),
                 },
 
-                Ok(Event::Eof | Event::End(_)) => break,
-                Ok(_) => (),
+                Ok(Event::Start(ref re)) => match reader.decode(re.local_name())? {
+                    "rss" => version = attrs_get_str(&reader, re.attributes(), "version")?,
 
+                    "channel" => {}
+
+                    "title" => {
+                        title = TextOrCData::from_xml_with_reader(bufs, reader)?
+                            .expect("没有title的订阅源？！");
+                    }
+
+                    "description" => {
+                        description = TextOrCData::from_xml_with_reader(bufs, reader)?;
+                    }
+
+                    "link" => {
+                        match TextOrCData::from_xml_with_reader(bufs, reader)? {
+                            Some(s) => url = s,
+                            None => match parse_atom_link(reader, re.attributes())? {
+                                Some(AtomLink::Source(e)) => atom_link = Some(e),
+                                Some(AtomLink::Alternate(e)) => url = e,
+                                _ => (),
+                            },
+                        };
+                    }
+
+                    "language" => language = TextOrCData::from_xml_with_reader(bufs, reader)?,
+
+                    "webMaster" => web_master = TextOrCData::from_xml_with_reader(bufs, reader)?,
+
+                    "generator" => generator = TextOrCData::from_xml_with_reader(bufs, reader)?,
+
+                    "lastBuildDate" => {
+                        last_build_date = TextOrCData::from_xml_with_reader(bufs, reader)?
+                    }
+
+                    "ttl" => ttl = NumberData::from_xml_with_reader(bufs, reader)?,
+
+                    "image" => image = Some(ChannelImage::from_xml_with_reader(bufs, reader)?),
+
+                    "item" | "entry" => {
+                        let item = FeedPost::from_xml_with_reader(bufs, reader)?;
+                        posts.push(item);
+                    }
+
+                    "copyright" => copyright = TextOrCData::from_xml_with_reader(bufs, reader)?,
+
+                    _ => {
+                        SkipThisElement::from_xml_with_reader(bufs, reader)?;
+                    }
+                },
+                Ok(Event::Eof | Event::End(_)) => break,
                 Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
+
+                _ => (),
             }
             buf.clear();
         }
@@ -227,7 +193,7 @@ impl FromXmlWithReader for RSSChannel {
     }
 }
 
-impl FromStr for RSSChannel {
+impl FromStr for Feed {
     type Err = quick_xml::Error;
 
     /// It takes a string, parses it as XML, and returns a `fast_xml::Result<RSSChannel>`
@@ -239,7 +205,7 @@ impl FromStr for RSSChannel {
     /// Returns:
     ///
     /// A Result<RSSChannel, fast_xml::Error>
-    fn from_str(text: &str) -> quick_xml::Result<RSSChannel> {
+    fn from_str(text: &str) -> quick_xml::Result<Feed> {
         let bufs = BufPool::new(16, 2048);
 
         Self::from_xml_with_str(&bufs, text)
@@ -290,7 +256,7 @@ mod test {
     #[test]
     fn encoding() {
         let s: &[u8] = include_bytes!("../../test/data/rss_2.0.xml");
-        let r = RSSChannel::from_xml_with_buf(Cursor::new(s)).unwrap();
+        let r = Feed::from_xml_with_buf(Cursor::new(s)).unwrap();
         assert_eq!(r.title, "rss_2.0.channel.title".to_owned());
         assert_eq!(r.link, "rss_2.0.channel.link".to_owned());
         assert_eq!(
@@ -302,7 +268,7 @@ mod test {
     #[test]
     fn samdm_test() {
         let s: &[u8] = include_bytes!("../../test/data/3dm.xml");
-        let r = RSSChannel::from_xml_with_buf(Cursor::new(s)).unwrap();
+        let r = Feed::from_xml_with_buf(Cursor::new(s)).unwrap();
         assert_eq!(r.title, "3DM - 新闻中心".to_owned());
         assert_eq!(r.link, "http://www.3dmgame.com/news/".to_owned());
         assert_eq!(
