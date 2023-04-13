@@ -82,6 +82,7 @@ impl TryFrom<&Feed> for String {
 pub struct ChannelFeeds {
     pub id: String,
     pub feed_hash: Vec<String>,
+    // K = feed_hash V = regex expression
     pub feed_regex: HashMap<String, String>,
 }
 

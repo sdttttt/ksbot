@@ -35,9 +35,9 @@ pub fn split_filter_empty_join_process(
     vec.join(&*pat.to_string())
 }
 
-pub fn find_http_url(url: &str) -> Option<String> {
+pub fn find_http_url(url: &str) -> Option<&str> {
     let m = REGEX_HTTP_URL.find(url)?;
-    Some(m.as_str().to_owned())
+    Some(m.as_str())
 }
 
 #[inline]

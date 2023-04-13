@@ -5,11 +5,12 @@ use crate::network_frame::KookEventMessage;
 use crate::network_runtime::BotNetworkEvent;
 use crate::push::{push_info, push_post};
 use crate::utils::{find_http_url, Throttle};
-use crate::{api, fetch, push};
+use crate::{fetch, push};
 use futures_util::FutureExt;
 use futures_util::StreamExt;
 use log::*;
 use once_cell::sync::Lazy;
+use regex::Regex;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,13 +22,17 @@ use tokio_util::time::DelayQueue;
 const COMMAND_RSS: &str = "/rss";
 const COMMAND_SUB: &str = "/sub";
 const COMMAND_UNSUB: &str = "/unsub";
+const COMMAND_REG: &str = "/reg";
+
 const SPACE: &str = " ";
-const FEED_REFRESH_INTERVAL: u32 = 10;
+const FEED_REFRESH_INTERVAL: u32 = 16;
 
 #[derive(Error, Debug)]
 pub enum KsbotError {
-    #[error("ksbot错误: {0}")]
-    Runtime(String),
+    #[error("不是一个有效的URL: {0}")]
+    NotUrl(String),
+    #[error("正则编译错误: {0}")]
+    NotRegex(#[from] regex::Error),
     #[error("ksbot错误: {0}")]
     InnerRuntime(#[from] anyhow::Error),
     #[error("订阅错误: {0}")]
@@ -35,7 +40,7 @@ pub enum KsbotError {
     #[error("平台消息错误: {0}")]
     KookMessage(String),
     #[error("数据库错误: {0}")]
-    Database(#[from] db::DatabaseError),
+    Database(#[from] db::StoreError),
 }
 
 pub struct KsbotRuntime {
@@ -54,16 +59,21 @@ impl KsbotRuntime {
     fn help(&self) -> String {
         "/rss        - 显示当前订阅的 RSS 列表
 /sub        - 订阅一个 RSS: /sub http://example.com/feed.xml
-/unsub      - 退订一个 RSS: /unsub http://example.com/feed.xml"
-            .to_owned()
+/unsub      - 退订一个 RSS: /unsub http://example.com/feed.xml
+/reg        - 设置过滤正则: /reg http://example.com/feed.xml (华为|蒂法)
+"
+        .to_owned()
     }
 
     // 订阅
-    async fn command_sub(
-        &self,
-        msg: &KookEventMessage,
-        subscribe_url: &str,
-    ) -> Result<(), KsbotError> {
+    async fn command_sub(&self, msg: &KookEventMessage, args: &[&str]) -> Result<(), KsbotError> {
+        let url = args[0];
+
+        let subscribe_url = match find_http_url(url) {
+            Some(u) => u,
+            None => return Err(KsbotError::NotUrl(url.to_owned())),
+        };
+
         let channel = msg.target_id.to_owned().unwrap();
         let rss = fetch::pull_feed(subscribe_url).await?;
         info!("{} 订阅了 {}", channel, subscribe_url);
@@ -75,15 +85,60 @@ impl KsbotRuntime {
     }
 
     // 取消订阅
-    async fn command_unsub(
-        &self,
-        msg: &KookEventMessage,
-        subscribe_url: &str,
-    ) -> Result<(), KsbotError> {
+    async fn command_unsub(&self, msg: &KookEventMessage, args: &[&str]) -> Result<(), KsbotError> {
+        let url = args[0];
+
+        let subscribe_url = match find_http_url(url) {
+            Some(u) => u,
+            None => return Err(KsbotError::NotUrl(url.to_owned())),
+        };
+
         let channel = msg.target_id.to_owned().unwrap();
         self.db.channel_unsubscribed(&*channel, subscribe_url)?;
         self.db.try_remove_feed(subscribe_url)?;
         push_info(&*format!("已取消订阅: {}", subscribe_url), msg).await?;
+        Ok(())
+    }
+
+    async fn command_reg(&self, msg: &KookEventMessage, args: &[&str]) -> Result<(), KsbotError> {
+        let url = args[0];
+        let reg = args[1];
+
+        let subscribe_url = match find_http_url(url) {
+            Some(u) => u,
+            None => return Err(KsbotError::NotUrl(url.to_owned())),
+        };
+
+        if let Err(e) = Regex::new(reg) {
+            return Err(KsbotError::NotRegex(e));
+        }
+        let channel_id = msg.target_id.to_owned().unwrap();
+        self.db
+            .update_channel_feed_regex(&channel_id, subscribe_url, reg)?;
+
+        push_info(&*format!("正则编译完成, 已启用."), msg).await?;
+        Ok(())
+    }
+
+    async fn met_me(&self, msg: &KookEventMessage) -> Result<(), KsbotError> {
+        push_info(&self.help(), msg).await?;
+        Ok(())
+    }
+
+    async fn command_rss(&self, msg: &KookEventMessage) -> Result<(), KsbotError> {
+        let channel_id = msg.target_id.to_owned().unwrap();
+        let feeds = self.db.channel_feed_list(&*channel_id)?;
+        let mut reply = "当前没有任何订阅, 是因为太年轻犯下的错么。".to_owned();
+
+        if !feeds.is_empty() {
+            let show_feeds = feeds
+                .iter()
+                .map(|s| format!("- [{}] {}", s.title, s.subscribe_url))
+                .collect::<Vec<String>>();
+            reply = show_feeds.join("\n");
+        }
+
+        push_info(&reply, msg).await?;
         Ok(())
     }
 
@@ -173,31 +228,39 @@ impl KsbotRuntime {
 
         let content = msg.content.to_owned().unwrap_or_else(|| "".to_owned());
         let channel_id = msg.target_id.to_owned().unwrap_or_else(|| "".to_owned());
-        let mut reply = Default::default();
 
         // 参数命令
         {
             if content.starts_with(COMMAND_SUB) {
-                let cmd_args = content.split(SPACE).collect::<Vec<&str>>();
-                if cmd_args.len() == 2 && !channel_id.is_empty() {
-                    let url = find_http_url(cmd_args[1].trim());
-                    if let Some(u) = url {
-                        self.command_sub(msg, &*u).await?;
-                    } else {
-                        return Err(KsbotError::Runtime(format!("错误的命令：{0}", content)));
-                    }
+                let args = content
+                    .split(SPACE)
+                    .filter(|t| !t.is_empty())
+                    .collect::<Vec<&str>>();
+                if args.len() == 2 && !channel_id.is_empty() {
+                    self.command_sub(msg, &args[1..]).await?;
+                    return Ok(());
                 }
             }
 
             if content.starts_with(COMMAND_UNSUB) {
-                let cmd_args = content.split(SPACE).collect::<Vec<&str>>();
+                let cmd_args = content
+                    .split(SPACE)
+                    .filter(|t| !t.is_empty())
+                    .collect::<Vec<&str>>();
                 if cmd_args.len() == 2 && !channel_id.is_empty() {
-                    let url = find_http_url(cmd_args[1].trim());
-                    if let Some(u) = url {
-                        self.command_unsub(msg, &*u).await?;
-                    } else {
-                        return Err(KsbotError::Runtime(format!("错误的命令：{0}", content)));
-                    }
+                    self.command_unsub(msg, &cmd_args[1..]).await?;
+                    return Ok(());
+                }
+            }
+
+            if content.starts_with(COMMAND_REG) {
+                let cmd_args = content
+                    .split(SPACE)
+                    .filter(|t| !t.is_empty())
+                    .collect::<Vec<&str>>();
+                if cmd_args.len() == 3 && !channel_id.is_empty() {
+                    self.command_reg(msg, &cmd_args[1..]).await?;
+                    return Ok(());
                 }
             }
         }
@@ -206,16 +269,8 @@ impl KsbotRuntime {
         {
             match content.trim() {
                 COMMAND_RSS => {
-                    let feeds = self.db.channel_feed_list(&*channel_id)?;
-                    if feeds.is_empty() {
-                        reply = "当前没有任何订阅, 是因为太年轻犯下的错么。".to_owned()
-                    } else {
-                        let show_feeds = feeds
-                            .iter()
-                            .map(|s| format!("- [{}] {}", s.title, s.subscribe_url))
-                            .collect::<Vec<String>>();
-                        reply = show_feeds.join("\n");
-                    }
+                    self.command_rss(msg).await?;
+                    return Ok(());
                 }
                 _ => {}
             }
@@ -226,18 +281,8 @@ impl KsbotRuntime {
             // `@用户名` 这种信息在content中显示的格式是：`(met){用户ID}(met)` 这样的形式
             let met_me = format!("(met){}", self.me_info.as_ref().unwrap().id);
             if content.starts_with(&met_me) {
-                reply = self.help();
+                self.met_me(msg).await?;
             }
-        }
-
-        if !reply.is_empty() {
-            api::http::message_create(
-                reply,
-                channel_id.to_owned(),
-                None,
-                Some(msg.msg_id.clone().unwrap()),
-            )
-            .await?;
         }
 
         Ok(())

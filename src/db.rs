@@ -6,10 +6,9 @@ use thiserror::Error;
 use crate::data::{ChannelFeeds, Feed};
 use crate::utils;
 const DEFAULT_DATABASE_PATH: &str = "__bot.db";
-const ITEM_PAT: char = ';';
 
 #[derive(Debug, Error)]
-pub enum DatabaseError {
+pub enum StoreError {
     #[error("数据库内部错误: {0}")]
     Inner(#[from] sled::Error),
 
@@ -48,27 +47,27 @@ impl Database {
     }
 
     // 频道订阅
-    pub fn channel_subscribed(&self, channel: &str, feed: Feed) -> Result<(), DatabaseError> {
+    pub fn channel_subscribed(&self, channel_id: &str, feed: Feed) -> Result<(), StoreError> {
         // 没有该订阅源先加入订阅列表
         if !self.contains_feed(&feed.subscribe_url)? {
             self.update_or_create_feed(&feed)?;
         }
         // 同上
-        if !self.contains_channel(channel)? {
-            self.update_or_create_channel(channel)?;
+        if !self.contains_channel(channel_id)? {
+            self.update_or_create_channel(channel_id)?;
         }
 
         let curr_feed_hash = feed_hash(&feed);
         // 频道的订阅列表全是以feed的subscribe_url的hash表示
-        self.chan_operaiton(&channel_key(channel), |chan_feeds| {
+        self.chan_operaiton(&channel_key(channel_id), |chan_feeds| {
             if !chan_feeds.feed_hash.contains(&curr_feed_hash) {
                 chan_feeds.feed_hash.push(curr_feed_hash.to_owned());
             }
         })?;
 
         self.feed_operaiton(&feed_key(&feed.subscribe_url), |feed| {
-            if !feed.channel_ids.contains(&channel.to_owned()) {
-                feed.channel_ids.push(channel.to_owned());
+            if !feed.channel_ids.contains(&channel_id.to_owned()) {
+                feed.channel_ids.push(channel_id.to_owned());
             }
         })?;
 
@@ -78,12 +77,12 @@ impl Database {
     // 频道取消订阅
     pub fn channel_unsubscribed(
         &self,
-        channel: &str,
+        channel_id: &str,
         subscribe_url: &str,
-    ) -> Result<(), DatabaseError> {
+    ) -> Result<(), StoreError> {
         self.feed_operaiton(&feed_key(subscribe_url), |feed| {
             for (idx, chan) in feed.channel_ids.iter().enumerate() {
-                if chan == channel {
+                if chan == channel_id {
                     feed.channel_ids.remove(idx);
                     break;
                 }
@@ -91,7 +90,7 @@ impl Database {
         })?;
 
         let curr_feed_hash = utils::hash(subscribe_url);
-        self.chan_operaiton(&channel_key(channel), |chan| {
+        self.chan_operaiton(&channel_key(channel_id), |chan| {
             for (idx, f) in chan.feed_hash.iter().enumerate() {
                 if curr_feed_hash == *f {
                     chan.feed_hash.remove(idx);
@@ -103,8 +102,32 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_channel_feed_regex(
+        &self,
+        channel_id: &str,
+        subscribe_url: &str,
+        regex_str: &str,
+    ) -> Result<(), StoreError> {
+        // 没有该订阅源先加入订阅列表
+        if !self.contains_feed(subscribe_url)? {
+            return Err(StoreError::NotFoundFeed(subscribe_url.to_owned()));
+        }
+
+        // 同上
+        if !self.contains_channel(channel_id)? {
+            self.update_or_create_channel(channel_id)?;
+        }
+
+        let curr_feed_hash = utils::hash(subscribe_url);
+        self.chan_operaiton(&channel_key(channel_id), |chan| {
+            chan.feed_regex.insert(curr_feed_hash, regex_str.to_owned());
+        })?;
+
+        Ok(())
+    }
+
     // 创建或者更新feed通过hash
-    pub fn update_or_create_feed(&self, feed: &Feed) -> Result<Option<Feed>, DatabaseError> {
+    pub fn update_or_create_feed(&self, feed: &Feed) -> Result<Option<Feed>, StoreError> {
         let feed_v = serde_json::to_string(feed)?;
         let feed_old = self
             .inner
@@ -120,10 +143,12 @@ impl Database {
     // 创建或者更新channelFeeds通过channel_id
     pub fn update_or_create_channel(
         &self,
-        channel: &str,
-    ) -> Result<Option<ChannelFeeds>, DatabaseError> {
-        let chan_feeds_v = serde_json::to_string(&ChannelFeeds::from_id(channel.to_owned()))?;
-        let old_chan_feeds_v = self.inner.insert(&*channel_key(channel), &*chan_feeds_v)?;
+        channel_id: &str,
+    ) -> Result<Option<ChannelFeeds>, StoreError> {
+        let chan_feeds_v = serde_json::to_string(&ChannelFeeds::from_id(channel_id.to_owned()))?;
+        let old_chan_feeds_v = self
+            .inner
+            .insert(&*channel_key(channel_id), &*chan_feeds_v)?;
 
         let result = old_chan_feeds_v.map(|t| {
             let s = utils::ivec_to_str(t);
@@ -135,7 +160,7 @@ impl Database {
 
     /// 尝试移除订阅源, 如果没有任何频道和该订阅源建立映射的话就会被移除
     /// 能移除订阅源的话可以减少部署端的订阅性能压力
-    pub fn try_remove_feed(&self, subscribe_url: &str) -> Result<bool, DatabaseError> {
+    pub fn try_remove_feed(&self, subscribe_url: &str) -> Result<bool, StoreError> {
         let chan_list = self.feed_channel_list(subscribe_url)?;
         if chan_list.is_empty() {
             self.remove_feed(subscribe_url)?;
@@ -145,7 +170,7 @@ impl Database {
         }
     }
 
-    pub fn feed_list(&self) -> Result<Vec<Feed>, DatabaseError> {
+    pub fn feed_list(&self) -> Result<Vec<Feed>, StoreError> {
         let iter = self.inner.scan_prefix(FEED_KEY_PREFIX);
 
         let feeds = iter
@@ -160,13 +185,15 @@ impl Database {
     }
 
     /// 该频道的订阅列表
-    pub fn channel_feed_list(&self, channel: &str) -> Result<Vec<Feed>, DatabaseError> {
+    pub fn channel_feed_list(&self, channel_id: &str) -> Result<Vec<Feed>, StoreError> {
         // 该订阅源的频道列表
         let mut feed_hashs: Vec<String> = vec![];
-        match self.chan_operaiton(&channel_key(channel), |t| feed_hashs = t.feed_hash.clone()) {
+        match self.chan_operaiton(&channel_key(channel_id), |t| {
+            feed_hashs = t.feed_hash.clone()
+        }) {
             Ok(_) => {}
-            Err(DatabaseError::NotFoundChannel(key)) => {
-                error!("{}", DatabaseError::NotFoundChannel(key));
+            Err(StoreError::NotFoundChannel(key)) => {
+                error!("{}", StoreError::NotFoundChannel(key));
             }
             Err(e) => return Err(e),
         }
@@ -187,17 +214,14 @@ impl Database {
     }
 
     /// 该订阅源的频道列表
-    pub fn feed_channel_list(
-        &self,
-        subscribe_url: &str,
-    ) -> Result<Vec<ChannelFeeds>, DatabaseError> {
+    pub fn feed_channel_list(&self, subscribe_url: &str) -> Result<Vec<ChannelFeeds>, StoreError> {
         let mut channel_ids: Vec<String> = vec![];
         match self.feed_operaiton(&feed_key(subscribe_url), |t| {
             channel_ids = t.channel_ids.clone()
         }) {
             Ok(_) => {}
-            Err(DatabaseError::NotFoundFeed(key)) => {
-                error!("{}", DatabaseError::NotFoundFeed(key));
+            Err(StoreError::NotFoundFeed(key)) => {
+                error!("{}", StoreError::NotFoundFeed(key));
             }
             Err(e) => return Err(e),
         }
@@ -222,7 +246,7 @@ impl Database {
         &self,
         chan_key: &str,
         f: impl FnOnce(&mut ChannelFeeds),
-    ) -> Result<(), DatabaseError> {
+    ) -> Result<(), StoreError> {
         // 该频道的订阅列表
         let chans_feed_ivec = self
             .inner
@@ -230,7 +254,7 @@ impl Database {
             .unwrap_or_else(|| IVec::from(vec![]));
         // 转成 str
         let chans_feed_str = if chans_feed_ivec.is_empty() {
-            return Err(DatabaseError::NotFoundChannel(chan_key.to_owned()));
+            return Err(StoreError::NotFoundChannel(chan_key.to_owned()));
         } else {
             utils::ivec_to_str(chans_feed_ivec)
         };
@@ -244,11 +268,7 @@ impl Database {
     }
 
     // 对订阅源的频道列表操作，会写入
-    fn feed_operaiton(
-        &self,
-        feed_key: &str,
-        f: impl FnOnce(&mut Feed),
-    ) -> Result<(), DatabaseError> {
+    fn feed_operaiton(&self, feed_key: &str, f: impl FnOnce(&mut Feed)) -> Result<(), StoreError> {
         // 该订阅源的频道列表
         let feed_chans_ivec = self
             .inner
@@ -256,7 +276,7 @@ impl Database {
             .unwrap_or_else(|| IVec::from(vec![]));
         // 转成 str
         let feed_chans_str = if feed_chans_ivec.is_empty() {
-            return Err(DatabaseError::NotFoundFeed(feed_key.to_owned()));
+            return Err(StoreError::NotFoundFeed(feed_key.to_owned()));
         } else {
             utils::ivec_to_str(feed_chans_ivec)
         };
@@ -271,14 +291,14 @@ impl Database {
 
     // 是否包含订阅源
     #[inline]
-    pub fn contains_feed(&self, subscribe_url: &str) -> Result<bool, DatabaseError> {
+    pub fn contains_feed(&self, subscribe_url: &str) -> Result<bool, StoreError> {
         let r = self.inner.contains_key(feed_key(subscribe_url))?;
         info!("contains_feed: {} <=> {}", r, subscribe_url);
         Ok(r)
     }
 
     #[inline]
-    pub fn contains_channel(&self, channel_id: &str) -> Result<bool, DatabaseError> {
+    pub fn contains_channel(&self, channel_id: &str) -> Result<bool, StoreError> {
         let r = self.inner.contains_key(channel_key(channel_id))?;
         info!("contains_channel: {} <=> {}", r, channel_id);
         Ok(r)
@@ -286,7 +306,7 @@ impl Database {
 
     // 查询feed通过feed_key
     #[inline]
-    fn query_feed_by_key(&self, feed_key: &str) -> Result<Option<Feed>, DatabaseError> {
+    fn query_feed_by_key(&self, feed_key: &str) -> Result<Option<Feed>, StoreError> {
         let feed_ivec_op = self.inner.get(feed_key)?;
         if let Some(feed_ivec) = feed_ivec_op {
             let feed_str = utils::ivec_to_str(feed_ivec);
@@ -297,7 +317,7 @@ impl Database {
 
     // 查询channel通过chan_key
     #[inline]
-    fn query_channel_by_id(&self, chan_key: &str) -> Result<Option<ChannelFeeds>, DatabaseError> {
+    fn query_channel_by_id(&self, chan_key: &str) -> Result<Option<ChannelFeeds>, StoreError> {
         let chan_ivec_op = self.inner.get(chan_key)?;
         if let Some(chan_ivec) = chan_ivec_op {
             let chan_str = utils::ivec_to_str(chan_ivec);
@@ -308,7 +328,7 @@ impl Database {
 
     // 移除订阅源
     #[inline]
-    fn remove_feed(&self, subscribe_url: &str) -> Result<(), DatabaseError> {
+    fn remove_feed(&self, subscribe_url: &str) -> Result<(), StoreError> {
         self.inner.remove(&*feed_key(subscribe_url))?;
         Ok(())
     }
@@ -325,8 +345,8 @@ fn feed_key(subscribe_url: &str) -> String {
 // channel::{channel_id} = {ChannelFeeds Struct}
 const CHANNEL_KEY_PREFIX: &str = "channel::";
 #[inline]
-fn channel_key(channel: &str) -> String {
-    format!("{}{}", CHANNEL_KEY_PREFIX, channel)
+fn channel_key(channel_id: &str) -> String {
+    format!("{}{}", CHANNEL_KEY_PREFIX, channel_id)
 }
 
 #[inline]
