@@ -22,11 +22,14 @@ pub struct SubscribeFeed {
     pub channel_ids: Vec<String>,
 }
 
+const POSTS_HASH_MAX: usize = 10; // 最长存放10个
+
 impl SubscribeFeed {
     pub fn from(url: &str, rss: &Feed) -> Self {
         let posts_hash = rss
             .posts
             .iter()
+            .take(POSTS_HASH_MAX)
             .map(|t| utils::hash(&t.link.as_ref().unwrap()))
             .collect();
 
@@ -50,6 +53,7 @@ impl SubscribeFeed {
         let posts_hash = rss
             .posts
             .iter()
+            .take(old.posts_hash.len()) // 和旧订阅源的保持一致
             .map(|t| utils::hash(&t.link.as_ref().unwrap()))
             .collect();
 
@@ -69,26 +73,18 @@ impl SubscribeFeed {
         }
     }
 
-    // 返回对比的两组feed, post_hash 不同的文章哈希
-    // result.0 调用方 result.1 是参数方
-    pub fn diff_post_index(&self, feed: &SubscribeFeed) -> (Vec<usize>, Vec<usize>) {
+    // 对比 post_hash 不同的文章哈希
+    // 返回下标
+    pub fn diff_post_index(&self, feed: &SubscribeFeed) -> Vec<usize> {
         let ph_1 = &self.posts_hash;
         let ph_2 = &feed.posts_hash;
-        let ph_1_diff = ph_1
+        let diff = ph_1
             .iter()
             .enumerate()
-            .filter(|&t| !ph_2.contains(t.1))
+            .filter(|t| !ph_2.contains(t.1))
             .map(|t| t.0)
             .collect();
-
-        let ph_2_diff = ph_2
-            .iter()
-            .enumerate()
-            .filter(|&t| !ph_1.contains(t.1))
-            .map(|t| t.0)
-            .collect();
-
-        (ph_1_diff, ph_2_diff)
+        diff
     }
 }
 

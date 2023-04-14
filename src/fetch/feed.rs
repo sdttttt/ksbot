@@ -95,7 +95,8 @@ impl FromXmlWithReader for Feed {
 
         loop {
             match reader.read_event(&mut buf) {
-                Ok(Event::Empty(ref ce)) => match reader.decode(ce.local_name())? {
+                Ok(Event::Empty(ref ce)) => match reader.decode(ce.name())? {
+                    // Atom 1.0 兼容
                     "link" => match parse_atom_link(reader, ce.attributes())? {
                         Some(AtomLink::Alternate(link)) => feed.link = link,
                         Some(AtomLink::Source(link)) => feed.atom_link = Some(link),
@@ -105,10 +106,12 @@ impl FromXmlWithReader for Feed {
                     _ => (),
                 },
 
-                Ok(Event::Start(ref re)) => match reader.decode(re.local_name())? {
+                Ok(Event::Start(ref re)) => match reader.decode(re.name())? {
+                    // RSS 版本
                     "rss" => feed.version = attrs_get_str(&reader, re.attributes(), "version")?,
 
-                    "channel" => {}
+                    // feed: Atom 1.0
+                    "channel" | "feed" => continue,
 
                     "title" => {
                         feed.title = TextOrCData::from_xml_with_reader(bufs, reader)?
@@ -148,6 +151,7 @@ impl FromXmlWithReader for Feed {
 
                     "image" => feed.image = Some(ChannelImage::from_xml_with_reader(bufs, reader)?),
 
+                    // entry: Atom 1.0 兼容
                     "item" | "entry" => {
                         let item = FeedPost::from_xml_with_reader(bufs, reader)?;
                         feed.posts.push(item);
@@ -161,6 +165,7 @@ impl FromXmlWithReader for Feed {
                         SkipThisElement::from_xml_with_reader(bufs, reader)?;
                     }
                 },
+
                 Ok(Event::Eof | Event::End(_)) => break,
                 Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
 
@@ -258,5 +263,28 @@ mod test {
                     .to_owned()
             )
         );
+    }
+
+    #[test]
+    fn atom_test() {
+        let s: &[u8] = include_bytes!("../../test/data/atom_1.0.xml");
+        let r = Feed::from_xml_with_buf(Cursor::new(s)).unwrap();
+        assert_eq!(&r.title, "atom_1.0.feed.title");
+        assert_eq!(&r.link, "http://example.com/blog_plain");
+        assert_eq!(r.description.as_deref(), None,);
+        assert_eq!(
+            r.posts[0].title.as_deref(),
+            Some("atom_1.0.feed.entry[0].title")
+        );
+    }
+
+    #[test]
+    fn github_commit_atom_test() {
+        let s: &[u8] = include_bytes!("../../test/data/commits.atom");
+        let r = Feed::from_xml_with_buf(Cursor::new(s)).unwrap();
+        assert_eq!(&r.title, "Recent Commits to ksbot:master");
+        assert_eq!(&r.link, "https://github.com/sdttttt/ksbot/commits/master");
+        assert_eq!(r.description.as_deref(), None,);
+        assert_eq!(r.posts[0].title.as_deref(), Some("Update README.md"));
     }
 }

@@ -11,14 +11,6 @@ use super::FromXmlWithReader;
 pub type TextOrCData = Option<String>;
 pub type NumberData = Option<u32>;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum AtomLink<'a> {
-    Alternate(String),
-    Source(String),
-    Hub(String),
-    Other(String, Cow<'a, str>),
-}
-
 impl FromXmlWithReader for TextOrCData {
     /// It reads the next event from the reader, and if it's a text or CDATA event, it returns the text.
     /// Otherwise, it returns an empty string
@@ -147,6 +139,14 @@ pub fn attrs_get_str<'a, B: std::io::BufRead>(
         );
     }
     Ok(value)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum AtomLink<'a> {
+    Alternate(String),
+    Source(String),
+    Hub(String),
+    Other(String, Cow<'a, str>),
 }
 
 /// It takes a `Reader` and a `Attributes` object, and returns an `Option<AtomLink>`

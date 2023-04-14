@@ -30,19 +30,14 @@ pub async fn push_update(db: Arc<Database>, old_feed: SubscribeFeed) -> Result<(
 
     let new_feed = SubscribeFeed::from_old(&old_feed, &new_rss);
 
-    let chans = db.feed_channel_list(&*new_feed.subscribe_url)?;
-    info!(
-        "有{}个频道要推送: {}",
-        chans.len(),
-        &*new_feed.subscribe_url
-    );
-
     // 取出新的文章index
-    let (ref new_indexs, _) = new_feed.diff_post_index(&old_feed);
+    let ref new_indexs = new_feed.diff_post_index(&old_feed);
     if new_indexs.is_empty() {
-        info!("文章无变化，不推送: {}", &*new_feed.subscribe_url);
+        info!("订阅源无更新: {}", &*new_feed.subscribe_url);
+        return Ok(());
     }
 
+    let chans = db.feed_channel_list(&*new_feed.subscribe_url)?;
     for ch in chans {
         let regex_str_op = ch.feed_regex.get(&utils::hash(&old_feed.subscribe_url));
         for idx in new_indexs {
@@ -51,10 +46,12 @@ pub async fn push_update(db: Arc<Database>, old_feed: SubscribeFeed) -> Result<(
             // 是否需要过滤
             if let Some(reg_str) = regex_str_op {
                 if !reg_str.trim().is_empty() && is_filter_post(post, reg_str) {
+                    info!("被过滤的文章: {} match {:?}", reg_str, post.title);
                     continue;
                 }
             }
 
+            info!("推送: {:?} => {}", post.title, &ch.id);
             push_post(&ch.id, post).await?;
         }
     }
