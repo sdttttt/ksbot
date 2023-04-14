@@ -32,7 +32,7 @@ pub async fn push_update(db: Arc<Database>, old_feed: SubscribeFeed) -> Result<(
                 .expect("Time went backwards")
                 .as_secs();
             let expired = old_feed.down_time + 60 * 60 * 24 * 7; // 一周都不可用就是过期了.
-            if expired > now {
+            if expired < now {
                 // TODO: 提醒该删除订阅源了
                 warn!(
                     "该订阅源已经超过一周不可用了，建议删除: {}",
