@@ -3,11 +3,12 @@
 一个尽可能简单的RSS订阅bot, 用于Kook, 使用WS通信, 易于部署。
 该bot的rss部分设计来自[iovxw/rssbot](https://github.com/iovxw/rssbot).
 
+- [x] RSS 2.0
+- [x] Atom 1.0
+
 ## 直接进行一个邀请
 - [MS-06S](https://www.kookapp.cn/app/oauth2/authorize?id=15283&permissions=268288&client_id=Jttc6p-vEtZoVYVo&redirect_uri=&scope=bot)
 - [RX-78-2](https://www.kookapp.cn/app/oauth2/authorize?id=16840&permissions=268288&client_id=EWnSjXXkSnVmfm7-&redirect_uri=&scope=bot)
-
-> ⚠ **目前只支持RSS2.0**
 
 ## Using
 ```
