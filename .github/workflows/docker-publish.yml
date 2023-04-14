@@ -10,7 +10,7 @@ on:
     - cron: '21 8 * * *'
   push:
     paths-ignore:
-      - "**.md"
+      - "*/**.md"
     branches: [ "master" ]
     # Publish semver tags as releases.
     tags: [ 'v*.*.*' ]
