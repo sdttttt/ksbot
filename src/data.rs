@@ -22,7 +22,7 @@ pub struct SubscribeFeed {
     pub channel_ids: Vec<String>,
 }
 
-const POSTS_HASH_MAX: usize = 10; // 最长存放10个
+const POSTS_HASH_MAX: usize = 16; // 最长存放15个
 
 impl SubscribeFeed {
     pub fn from(url: &str, rss: &Feed) -> Self {

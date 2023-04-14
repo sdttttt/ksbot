@@ -371,8 +371,6 @@ fn feed_hash(feed: &SubscribeFeed) -> String {
 #[cfg(test)]
 mod test {
 
-    use std::borrow::Cow;
-
     use crate::{data::SubscribeFeed, utils};
 
     use super::Database;

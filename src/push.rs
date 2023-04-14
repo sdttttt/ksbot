@@ -22,29 +22,29 @@ use crate::{
 static REGEX_FILTER_MAP: Lazy<Mutex<HashMap<String, Regex>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-pub async fn push_update(db: Arc<Database>, old_feed: SubscribeFeed) -> Result<(), anyhow::Error> {
-    info!("pull {}", &*old_feed.subscribe_url);
-    let new_rss = match pull_feed(&*old_feed.subscribe_url).await {
+pub async fn push_update(db: Arc<Database>, feed: SubscribeFeed) -> Result<(), anyhow::Error> {
+    info!("pull {}", &*feed.subscribe_url);
+    let new_rss = match pull_feed(&*feed.subscribe_url).await {
         Ok(f) => f,
         Err(e) => {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_secs();
-            let expired = old_feed.down_time + 60 * 60 * 24 * 7; // 一周都不可用就是过期了.
+            let expired = feed.down_time + 60 * 60 * 24 * 7; // 一周都不可用就是过期了.
             if expired < now {
                 // TODO: 提醒该删除订阅源了
                 warn!(
                     "该订阅源已经超过一周不可用了，建议删除: {}",
-                    old_feed.subscribe_url
+                    feed.subscribe_url
                 );
             }
             bail!("Failed to pull feed: {:?}", e)
         }
     };
 
-    let new_feed = SubscribeFeed::from_old(&old_feed, &new_rss);
-    db.update_or_create_feed(&new_feed)?; // 更新
+    let new_feed = SubscribeFeed::from_old(&feed, &new_rss);
+    let old_feed = db.update_or_create_feed(&new_feed)?.unwrap(); // 更新
 
     // 取出新的文章index
     let ref new_indexs = new_feed.diff_post_index(&old_feed);
@@ -52,6 +52,8 @@ pub async fn push_update(db: Arc<Database>, old_feed: SubscribeFeed) -> Result<(
         info!("订阅源无更新: {}", &*new_feed.subscribe_url);
         return Ok(());
     }
+
+    info!("new: {:?},old: {:?}", new_feed, old_feed);
 
     let chans = db.feed_channel_list(&*new_feed.subscribe_url)?;
     for ch in chans {

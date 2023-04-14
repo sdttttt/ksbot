@@ -14,7 +14,7 @@ use regex::Regex;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use thiserror::Error;
 use tokio::sync::{broadcast, Notify};
 use tokio_util::time::DelayQueue;
@@ -213,11 +213,8 @@ impl KsbotRuntime {
     }
 
     async fn on_message(&self, msg: &KookEventMessage) -> Result<(), KsbotError> {
-        if let Some(bot) = msg.bot {
-            if bot {
-                info!("Bot消息，忽略...");
-                return Ok(());
-            }
+        if !is_valid_message(msg) {
+            return Ok(());
         }
 
         info!(
@@ -320,4 +317,32 @@ impl FetchQueue {
             }
         }
     }
+}
+
+fn is_valid_message(msg: &KookEventMessage) -> bool {
+    match msg.msg_timestamp {
+        Some(timestamp) => {
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_millis();
+
+            if now > (timestamp + 5 * 1000) as u128 {
+                info!("远古消息，忽略了: {:?}", msg);
+                return false;
+            }
+        }
+        None => {
+            todo!()
+        }
+    }
+
+    if let Some(bot) = msg.bot {
+        if bot {
+            info!("Bot消息，忽略...");
+            return false;
+        }
+    }
+
+    true
 }
