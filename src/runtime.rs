@@ -80,7 +80,9 @@ impl KsbotRuntime {
         let feed = SubscribeFeed::from(subscribe_url, &rss);
         self.db.channel_subscribed(&*channel, feed)?;
         push_info(&*format!("已订阅: {}", subscribe_url), msg).await?;
-        push_post(&channel, &rss.posts[0]).await?;
+        if !&rss.posts.is_empty() {
+            push_post(&channel, &rss.posts[0]).await?;
+        }
         Ok(())
     }
 
