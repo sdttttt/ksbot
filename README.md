@@ -31,5 +31,10 @@ cargo build --release
 ### Deploy
 
 ```
+# 编译困难，或者无法使用Release中的二进制 Docker
+docker pull ghcr.io/sdttttt/ksbot:master
+docker run -d --name ksbot-master -e TOKEN=<token> ksbot:master
+
+# 二进制：
 ksbot -t <token>
 ```
