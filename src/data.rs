@@ -53,7 +53,7 @@ impl SubscribeFeed {
         let posts_hash = rss
             .posts
             .iter()
-            .take(old.posts_hash.len()) // 和旧订阅源的保持一致
+            .take(POSTS_HASH_MAX)
             .map(|t| utils::hash(&t.link.as_ref().unwrap()))
             .collect();
 
