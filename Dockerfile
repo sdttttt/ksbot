@@ -29,4 +29,6 @@ FROM alpine as runner
 WORKDIR /app
 COPY --from=builder /app/target/release/ksbot app
 
-CMD ["./app"]
+ENV TOKEN=you-kook-bot-token
+
+CMD ./app -t $TOKEN
