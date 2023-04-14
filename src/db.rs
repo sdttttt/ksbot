@@ -371,6 +371,8 @@ fn feed_hash(feed: &SubscribeFeed) -> String {
 #[cfg(test)]
 mod test {
 
+    use std::borrow::Cow;
+
     use crate::{data::SubscribeFeed, utils};
 
     use super::Database;
@@ -409,6 +411,7 @@ mod test {
         let feeds_1 = DB.channel_feed_list(chan).unwrap();
         assert_eq!(1, feeds_1.len());
         assert_eq!("http://b.a", feeds_1[0].subscribe_url);
+        assert_eq!(1, feeds_1[0].channel_ids.len());
         let chans_1 = DB.feed_channel_list(subscribe_url).unwrap();
         assert_eq!(1, chans_1.len());
         assert_eq!(chan, chans_1[0].id);

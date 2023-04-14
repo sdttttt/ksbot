@@ -21,15 +21,14 @@ use crate::{
 static REGEX_FILTER_MAP: Lazy<Mutex<HashMap<String, Regex>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-pub async fn push_update(db: Arc<Database>, feed: SubscribeFeed) -> Result<(), anyhow::Error> {
-    info!("pull {}", &*feed.subscribe_url);
-    let new_rss = match pull_feed(&*feed.subscribe_url).await {
+pub async fn push_update(db: Arc<Database>, old_feed: SubscribeFeed) -> Result<(), anyhow::Error> {
+    info!("pull {}", &*old_feed.subscribe_url);
+    let new_rss = match pull_feed(&*old_feed.subscribe_url).await {
         Ok(f) => f,
         Err(e) => bail!("Failed to pull feed: {:?}", e),
     };
 
-    let new_feed = SubscribeFeed::from(&feed.subscribe_url, &new_rss);
-    let old_feed = db.update_or_create_feed(&new_feed)?;
+    let new_feed = SubscribeFeed::from_old(&old_feed, &new_rss);
 
     let chans = db.feed_channel_list(&*new_feed.subscribe_url)?;
     info!(
@@ -38,15 +37,14 @@ pub async fn push_update(db: Arc<Database>, feed: SubscribeFeed) -> Result<(), a
         &*new_feed.subscribe_url
     );
 
-    let feed = old_feed.as_ref().unwrap();
     // 取出新的文章index
-    let (ref new_indexs, _) = new_feed.diff_post_index(feed);
+    let (ref new_indexs, _) = new_feed.diff_post_index(&old_feed);
     if new_indexs.is_empty() {
         info!("文章无变化，不推送: {}", &*new_feed.subscribe_url);
     }
 
     for ch in chans {
-        let regex_str_op = ch.feed_regex.get(&utils::hash(&feed.subscribe_url));
+        let regex_str_op = ch.feed_regex.get(&utils::hash(&old_feed.subscribe_url));
         for idx in new_indexs {
             let post = &new_rss.posts[*idx];
 

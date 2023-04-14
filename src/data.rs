@@ -46,6 +46,29 @@ impl SubscribeFeed {
         }
     }
 
+    pub fn from_old(old: &Self, rss: &Feed) -> Self {
+        let posts_hash = rss
+            .posts
+            .iter()
+            .map(|t| utils::hash(&t.link.as_ref().unwrap()))
+            .collect();
+
+        let start = SystemTime::now();
+        let since_the_epoch = start
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards");
+
+        Self {
+            subscribe_url: old.subscribe_url.to_owned(),
+            title: rss.title.to_owned(),
+            link: rss.link.to_owned(),
+            down_time: since_the_epoch.as_secs(),
+            ttl: rss.ttl,
+            posts_hash,
+            channel_ids: old.channel_ids.to_owned(),
+        }
+    }
+
     // 返回对比的两组feed, post_hash 不同的文章哈希
     // result.0 调用方 result.1 是参数方
     pub fn diff_post_index(&self, feed: &SubscribeFeed) -> (Vec<usize>, Vec<usize>) {
