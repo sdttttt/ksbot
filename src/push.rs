@@ -83,7 +83,7 @@ pub async fn push_post(chan_id: &str, item: &fetch::item::FeedPost) -> Result<()
     }
 
     let content = format!(
-        "{} - {}",
+        "**{}** \n > {}",
         item.title.as_ref().unwrap_or(&"".to_owned()),
         item.link.as_ref().unwrap()
     );
