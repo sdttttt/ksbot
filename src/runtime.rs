@@ -155,7 +155,6 @@ impl KsbotRuntime {
             tokio::select! {
                 feed = queue.next().fuse() => {
                     let ifeed = feed.expect("unreachable");
-                    info!("pull feed: {:?}", ifeed);
                     let opportunity = throttle.acquire();
                     let db = self.db.clone();
                     tokio::spawn(async move {

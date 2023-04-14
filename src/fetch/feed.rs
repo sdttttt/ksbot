@@ -286,5 +286,11 @@ mod test {
         assert_eq!(&r.link, "https://github.com/sdttttt/ksbot/commits/master");
         assert_eq!(r.description.as_deref(), None,);
         assert_eq!(r.posts[0].title.as_deref(), Some("Update README.md"));
+        assert_eq!(
+            r.posts[0].link.as_deref(),
+            Some(
+                "https://github.com/sdttttt/ksbot/commit/f0b049e0ed0d936c82010fbe53d34f4ecce99e9d"
+            )
+        );
     }
 }
