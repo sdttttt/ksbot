@@ -66,6 +66,7 @@ jobs:
 
     - name: Build
       run: |
+            export PKG_CONFIG_SYSROOT_DIR=/
             cargo build --release --target=${{ matrix.target }}
             mv ./target/${{ matrix.target }}/release/ksbot ksbot-$LOCALE-${{ matrix.target }}
             
