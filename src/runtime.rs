@@ -25,7 +25,12 @@ const COMMAND_UNSUB: &str = "/unsub";
 const COMMAND_REG: &str = "/reg";
 
 const SPACE: &str = " ";
-const FEED_REFRESH_INTERVAL: u32 = 16;
+
+#[cfg(not(debug_assertions))]
+const FEED_REFRESH_INTERVAL: u32 = 60 * 3; // 默认3分钟拉一次
+
+#[cfg(debug_assertions)]
+const FEED_REFRESH_INTERVAL: u32 = 60 / 5; // 调试拉的快一点，12秒一次
 
 #[derive(Error, Debug)]
 pub enum KsbotError {
