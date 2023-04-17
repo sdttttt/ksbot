@@ -47,6 +47,8 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
+    - name: sys-deps
+      run: sudo apt-get install libssl-dev 
     - name: Install Rust
       uses: hecrj/setup-rust-action@v1
       with:
