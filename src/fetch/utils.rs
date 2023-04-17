@@ -70,9 +70,10 @@ impl FromXmlWithReader for NumberData {
                     let number_str = reader.decode(e)?;
                     number = Some(match number_str.parse::<u32>() {
                         Err(_) => {
-                            return Err(quick_xml::Error::UnexpectedToken(
-                                (format!("{} to number failed!", number_str)).to_string(),
-                            ))
+                            return Err(quick_xml::Error::UnexpectedToken(format!(
+                                "{} to number failed!",
+                                number_str
+                            )))
                         }
                         Ok(n) => n,
                     })
@@ -82,9 +83,10 @@ impl FromXmlWithReader for NumberData {
                     let number_str = reader.decode(e)?;
                     number = Some(match number_str.parse::<u32>() {
                         Err(_) => {
-                            return Err(quick_xml::Error::UnexpectedToken(
-                                (format!("{} to number failed!", number_str)).to_string(),
-                            ))
+                            return Err(quick_xml::Error::UnexpectedToken(format!(
+                                "{} to number failed!",
+                                number_str
+                            )))
                         }
                         Ok(n) => n,
                     })

@@ -108,7 +108,7 @@ impl FromXmlWithReader for Feed {
 
                 Ok(Event::Start(ref re)) => match reader.decode(re.name())? {
                     // RSS 版本
-                    "rss" => feed.version = attrs_get_str(&reader, re.attributes(), "version")?,
+                    "rss" => feed.version = attrs_get_str(reader, re.attributes(), "version")?,
 
                     // feed: Atom 1.0
                     "channel" | "feed" => continue,

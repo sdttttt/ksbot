@@ -83,8 +83,8 @@ impl KsbotRuntime {
         let rss = fetch::pull_feed(subscribe_url).await?;
         info!("{} 订阅了 {}", channel, subscribe_url);
         let feed = SubscribeFeed::from(subscribe_url, &rss);
-        self.db.channel_subscribed(&*channel, feed)?;
-        push_info(&*format!("已订阅: {}", subscribe_url), msg).await?;
+        self.db.channel_subscribed(&channel, feed)?;
+        push_info(&format!("已订阅: {}", subscribe_url), msg).await?;
         if !&rss.posts.is_empty() {
             push_post(&channel, &rss.posts[0]).await?;
         }
@@ -101,9 +101,9 @@ impl KsbotRuntime {
         };
 
         let channel = msg.target_id.to_owned().unwrap();
-        self.db.channel_unsubscribed(&*channel, subscribe_url)?;
+        self.db.channel_unsubscribed(&channel, subscribe_url)?;
         self.db.try_remove_feed(subscribe_url)?;
-        push_info(&*format!("已取消订阅: {}", subscribe_url), msg).await?;
+        push_info(&format!("已取消订阅: {}", subscribe_url), msg).await?;
         Ok(())
     }
 
@@ -123,7 +123,7 @@ impl KsbotRuntime {
         self.db
             .update_channel_feed_regex(&channel_id, subscribe_url, reg)?;
 
-        push_info(&*format!("正则编译完成, 已启用."), msg).await?;
+        push_info(&format!("正则编译完成, 已启用."), msg).await?;
         Ok(())
     }
 
@@ -134,7 +134,7 @@ impl KsbotRuntime {
 
     async fn command_rss(&self, msg: &KookEventMessage) -> Result<(), KsbotError> {
         let channel_id = msg.target_id.to_owned().unwrap();
-        let feeds = self.db.channel_feed_list(&*channel_id)?;
+        let feeds = self.db.channel_feed_list(&channel_id)?;
         let mut reply = "当前没有任何订阅, 是因为太年轻犯下的错么。".to_owned();
 
         if !feeds.is_empty() {
@@ -282,8 +282,8 @@ impl KsbotRuntime {
         // 帮助说明，如果被@
         {
             // `@用户名` 这种信息在content中显示的格式是：`(met){用户ID}(met)` 这样的形式
-            let met_me = format!("(met){}", self.me_info.as_ref().unwrap().id);
-            if content.starts_with(&met_me) {
+            let met_me = format!("(met){}(met)", self.me_info.as_ref().unwrap().id);
+            if content.contains(&met_me) {
                 self.met_me(msg).await?;
             }
         }
@@ -347,6 +347,13 @@ fn is_valid_message(msg: &KookEventMessage) -> bool {
     if let Some(bot) = msg.bot {
         if bot {
             info!("Bot消息，忽略...");
+            return false;
+        }
+    }
+
+    if let Some(ref t) = msg.channel_type {
+        if t == "PERSON" {
+            info!("私聊消息，暂时不想支持，忽略...");
             return false;
         }
     }

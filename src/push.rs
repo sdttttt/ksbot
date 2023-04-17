@@ -23,8 +23,8 @@ static REGEX_FILTER_MAP: Lazy<Mutex<HashMap<String, Regex>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub async fn push_update(db: Arc<Database>, feed: SubscribeFeed) -> Result<(), anyhow::Error> {
-    info!("pull {}", &*feed.subscribe_url);
-    let new_rss = match pull_feed(&*feed.subscribe_url).await {
+    info!("pull {}", &feed.subscribe_url);
+    let new_rss = match pull_feed(&feed.subscribe_url).await {
         Ok(f) => f,
         Err(e) => {
             let now = SystemTime::now()
@@ -47,15 +47,15 @@ pub async fn push_update(db: Arc<Database>, feed: SubscribeFeed) -> Result<(), a
     let old_feed = db.update_or_create_feed(&new_feed)?.unwrap(); // 更新
 
     // 取出新的文章index
-    let ref mut new_indexs = new_feed.diff_post_index(&old_feed);
+    let new_indexs = &mut new_feed.diff_post_index(&old_feed);
     if new_indexs.is_empty() {
-        info!("订阅源无更新: {}", &*new_feed.subscribe_url);
+        info!("订阅源无更新: {}", new_feed.subscribe_url);
         return Ok(());
     }
 
     info!("new: {:?},old: {:?}", new_feed, old_feed);
 
-    let chans = db.feed_channel_list(&*new_feed.subscribe_url)?;
+    let chans = db.feed_channel_list(&new_feed.subscribe_url)?;
     for ch in chans {
         let regex_str_op = ch.feed_regex.get(&utils::hash(&old_feed.subscribe_url));
 
@@ -99,7 +99,7 @@ pub async fn push_post(chan_id: &str, item: &fetch::item::FeedPost) -> Result<()
 pub async fn push_info(content: &str, msg: &KookEventMessage) -> Result<(), anyhow::Error> {
     let chan_id = msg.target_id.to_owned().unwrap();
     let quote = msg.msg_id.to_owned().unwrap();
-    http::message_create(format!("{}", content), chan_id, None, Some(quote)).await?;
+    http::message_create(content.to_owned(), chan_id, None, Some(quote)).await?;
 
     Ok(())
 }

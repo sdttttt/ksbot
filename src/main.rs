@@ -76,8 +76,10 @@ fn parse_conf() -> Result<Config, anyhow::Error> {
         (Some(_), Some(path)) | (None, Some(path)) => Ok(Config::try_from(path.as_path())?),
 
         (Some(token), None) => {
-            let mut c = Config::default();
-            c.token = token.to_owned();
+            let c = Config {
+                token: token.to_owned(),
+                ..Default::default()
+            };
             Ok(c)
         }
 

@@ -26,10 +26,10 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 #[derive(Debug, Clone)]
 pub enum BotNetworkEvent {
     Connect(),
-    Message(KookEventMessage),
     Heart(),
     Error(),
     Shutdown(),
+    Message(Box<KookEventMessage>),
 }
 
 // 保存在硬盘上的数据
@@ -95,9 +95,7 @@ impl BotNetworkRuntime {
         let mut gateway_url: Option<String> = None;
         let mut state = BotState::GetGateway;
         if f_content.trim().is_empty() == false {
-            let store = serde_json::from_str::<BotStore>(&f_content).expect(&format!(
-                "序列化机器人持久化文件错误, 如果反复出现该错误可删除该文件。(默认的持久化文件名：{})", BOT_STORE_FILE_PATH)
-            );
+            let store = serde_json::from_str::<BotStore>(&f_content).unwrap_or_else(|_| panic!("序列化机器人持久化文件错误, 如果反复出现该错误可删除该文件。(默认的持久化文件名：{})", BOT_STORE_FILE_PATH));
             // 从文件中读取
             session_id = Some(store.session_id);
             sn = store.sn;
@@ -175,9 +173,8 @@ impl BotNetworkRuntime {
                 }
 
                 BotState::Working => {
-                    match self.work().await {
-                        Err(e) => error!("工作出错: {:?}", e),
-                        _ => (),
+                    if let Err(e) = self.work().await {
+                        error!("工作出错: {:?}", e)
                     }
 
                     self.state = BotState::GetGateway;
@@ -359,7 +356,7 @@ impl BotNetworkRuntime {
                                     let event_frame = KookWSFrame::<KookEventMessage>::try_from(f).expect("事件消息反序列化失败.");
                                     // 发送消息广播给所有的信道
                                     if let Some(sender) = &self.event_sender {
-                                        if let Err(e) = sender.send(BotNetworkEvent::Message(event_frame.d.unwrap())) {
+                                        if let Err(e) = sender.send(BotNetworkEvent::Message(Box::new(event_frame.d.unwrap()))) {
                                             error!("通信运行时消息发送失败：{}", e);
                                         }
                                      }

@@ -64,7 +64,7 @@ pub fn init_rss_client(max_feed_size: Option<u64>) {
 
     CLIENT.set(client).expect("CLIENT already initialized");
     RESP_SIZE_LIMIT
-        .set(max_feed_size.unwrap_or_else(|| DEFAULT_RESP_SIZE_LIMIT))
+        .set(max_feed_size.unwrap_or(DEFAULT_RESP_SIZE_LIMIT))
         .expect("RESP_SIZE_LIMIT already initialized");
 }
 #[cfg(test)]

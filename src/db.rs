@@ -38,10 +38,12 @@ impl Database {
             .flush_every_ms(Some(4 * 1000))
             .path(path)
             .open()
-            .expect(&format!(
-                "数据库初始化出错, 反复出现此错误可以尝试删除数据库文件。(默认: {})",
-                DEFAULT_DATABASE_PATH
-            ));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "数据库初始化出错, 反复出现此错误可以尝试删除数据库文件。(默认: {})",
+                    DEFAULT_DATABASE_PATH
+                )
+            });
 
         Database { inner }
     }
@@ -141,7 +143,7 @@ impl Database {
             .insert(&*feed_key(&feed.subscribe_url), &*feed_v)?;
         let result = feed_old.map(|t| {
             let s = utils::ivec_to_str(t);
-            serde_json::from_str::<SubscribeFeed>(&*s).expect("feed序列化失败")
+            serde_json::from_str::<SubscribeFeed>(&s).expect("feed序列化失败")
         });
 
         Ok(result)
@@ -159,7 +161,7 @@ impl Database {
 
         let result = old_chan_feeds_v.map(|t| {
             let s = utils::ivec_to_str(t);
-            serde_json::from_str::<ChannelSubFeeds>(&*s).expect("feed序列化失败")
+            serde_json::from_str::<ChannelSubFeeds>(&s).expect("feed序列化失败")
         });
 
         Ok(result)

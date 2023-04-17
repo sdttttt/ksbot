@@ -54,7 +54,7 @@ impl SubscribeFeed {
             .posts
             .iter()
             .take(POSTS_HASH_MAX)
-            .map(|t| utils::hash(&t.link.as_ref().unwrap()))
+            .map(|t| utils::hash(t.link.as_ref().unwrap()))
             .collect();
 
         let start = SystemTime::now();
