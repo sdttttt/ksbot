@@ -30,10 +30,10 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build
-      run: cargo build --release
+      run: cargo build
 
     - name: Test
-      run: cargo test --release --verbose
+      run: cargo test --verbose
 
     - uses: actions/upload-artifact@v3
       with:
