@@ -47,7 +47,7 @@ pub async fn push_update(db: Arc<Database>, feed: SubscribeFeed) -> Result<(), a
     let old_feed = db.update_or_create_feed(&new_feed)?.unwrap(); // 更新
 
     // 取出新的文章index
-    let ref new_indexs = new_feed.diff_post_index(&old_feed);
+    let ref mut new_indexs = new_feed.diff_post_index(&old_feed);
     if new_indexs.is_empty() {
         info!("订阅源无更新: {}", &*new_feed.subscribe_url);
         return Ok(());
@@ -58,7 +58,10 @@ pub async fn push_update(db: Arc<Database>, feed: SubscribeFeed) -> Result<(), a
     let chans = db.feed_channel_list(&*new_feed.subscribe_url)?;
     for ch in chans {
         let regex_str_op = ch.feed_regex.get(&utils::hash(&old_feed.subscribe_url));
-        for idx in new_indexs {
+
+        // 倒序一下，让新文章排在后面
+        new_indexs.reverse();
+        for idx in &*new_indexs {
             let post = &new_rss.posts[*idx];
 
             // 是否需要过滤
