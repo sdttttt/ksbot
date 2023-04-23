@@ -1,7 +1,7 @@
-use log::*;
 use sled::transaction::TransactionError;
 use sled::IVec;
 use thiserror::Error;
+use tracing::{debug, error, info, warn};
 
 use crate::data::{ChannelSubFeeds, SubscribeFeed};
 use crate::utils;

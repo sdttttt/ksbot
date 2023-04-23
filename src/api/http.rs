@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use tokio::time::Interval;
 
 use crate::conf::BotConfig;
-use log::*;
+use tracing::*;
 
 use super::{is_http_ok, prefix_url, KookResponse};
 

@@ -8,9 +8,9 @@ use crate::{
     api::http, fetch::item::FeedPost, network_frame::KookEventMessage, runtime::KsbotError, utils,
 };
 use anyhow::bail;
-use log::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use tracing::*;
 
 use crate::{
     data::SubscribeFeed,
@@ -22,6 +22,7 @@ use crate::{
 static REGEX_FILTER_MAP: Lazy<Mutex<HashMap<String, Regex>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+#[tracing::instrument(skip(db))]
 pub async fn push_update(db: Arc<Database>, feed: SubscribeFeed) -> Result<(), anyhow::Error> {
     info!("pull {}", &feed.subscribe_url);
     let new_rss = match pull_feed(&feed.subscribe_url).await {
@@ -104,6 +105,7 @@ pub async fn push_info(content: &str, msg: &KookEventMessage) -> Result<(), anyh
     Ok(())
 }
 
+#[tracing::instrument]
 pub async fn push_error(
     err: KsbotError,
     chan_id: String,

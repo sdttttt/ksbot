@@ -1,11 +1,10 @@
 use anyhow::bail;
+use tracing::instrument::WithSubscriber;
 
-use simplelog::Config as LogConfig;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use log::*;
-use simplelog::*;
+use tracing::{debug, error, info, warn, Level};
 
 use crate::api::http::init_kook_client;
 use crate::conf::Config;
@@ -42,7 +41,7 @@ async fn main() {
 }
 
 async fn main1() -> Result<(), anyhow::Error> {
-    init_log();
+    init_tracing()?;
 
     let conf = parse_conf()?;
 
@@ -87,19 +86,34 @@ fn parse_conf() -> Result<Config, anyhow::Error> {
     }
 }
 
-fn init_log() {
-    CombinedLogger::init(vec![
-        TermLogger::new(
-            LevelFilter::Info,
-            LogConfig::default(),
-            TerminalMode::Mixed,
-            ColorChoice::Auto,
-        ),
-        WriteLogger::new(
-            LevelFilter::Info,
-            LogConfig::default(),
-            std::fs::File::create("bot.log").unwrap(),
-        ),
-    ])
-    .unwrap();
+fn init_tracing() -> anyhow::Result<()> {
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+    use tracing_subscriber::prelude::*;
+
+    let appender = tracing_appender::rolling::hourly("", "bog.log");
+
+    let (non_blocking, _guard) = tracing_appender::non_blocking(appender);
+
+    let sub = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::Layer::new()
+                .with_writer(std::io::stdout.with_max_level(Level::INFO))
+                .with_file(true)
+                .with_line_number(true)
+                .with_thread_ids(true)
+                .with_target(false)
+                .compact(),
+        )
+        .with(
+            tracing_subscriber::fmt::Layer::new()
+                .with_writer(non_blocking.with_max_level(Level::INFO))
+                .with_file(true)
+                .with_line_number(true)
+                .with_thread_ids(true)
+                .with_target(false)
+                .json(),
+        );
+
+    tracing::subscriber::set_global_default(sub)?;
+    Ok(())
 }

@@ -10,10 +10,11 @@ use futures_util::{
 };
 use serde::{Deserialize, Serialize};
 
-use log::*;
+use tracing::{debug, error, info, warn};
 
 use serde_json::Value;
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 use std::fs::File;
 use std::io::{Read, Seek, Write};
 use std::time::Duration;
@@ -70,7 +71,8 @@ pub struct BotNetworkRuntime {
     ws_read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
 
     // 待处理的事件消息: Key = 消息的SN
-    wait_process_event_map: HashMap<u64, KookWSFrame<Value>>,
+    // Reverse 是为了倒序，默认排序是sn最小在前, 这样pop反而是最大的sn
+    wait_process_event_map: BinaryHeap<Reverse<KookWSFrame<Value>>>,
     // 广播事件发送
     event_sender: Option<broadcast::Sender<BotNetworkEvent>>,
     /// 心跳信道
@@ -114,7 +116,7 @@ impl BotNetworkRuntime {
             ws_read: None,
             ws_write: None,
             event_sender: None,
-            wait_process_event_map: HashMap::new(),
+            wait_process_event_map: BinaryHeap::with_capacity(64),
             heart_chan: tokio::sync::mpsc::channel::<bool>(1),
         }
     }
@@ -228,7 +230,6 @@ impl BotNetworkRuntime {
                 error!("通信运行时消息发送失败：{}", e);
             }
         }
-
         Ok(())
     }
 
@@ -289,93 +290,100 @@ impl BotNetworkRuntime {
 
                     match frame.sn {
 
-                    // 处理不带信令的数据帧
-                    None => {
-                        match &frame.s {
-                            &WS_PONG => {
-                                 info!("client <- pong <- server ");
-                                 self.heart_chan.0.send(true).await?;
-                                 if let Some(sender) = &self.event_sender {
-                                    if let Err(e) = sender.send(BotNetworkEvent::Heart()) {
-                                        error!("通信运行时消息发送失败：{}", e);
+                        // 处理不带信令的数据帧
+                        None => {
+                            match &frame.s {
+                                &WS_PONG => {
+                                    info!("client <- pong <- server ");
+                                    self.heart_chan.0.send(true).await?;
+                                    if let Some(sender) = &self.event_sender {
+                                        if let Err(e) = sender.send(BotNetworkEvent::Heart()) {
+                                            error!("通信运行时消息发送失败：{}", e);
+                                        }
                                     }
-                                 }
-                             },
+                                },
 
-                             &WS_RECONNECT =>  {
-                                 error!("当前连接失效，准备重新连接...");
-                                 // KookDocs: 任何时候，收到 reconnect 包，应该将当前消息队列，sn等全部清空，然后回到第 1 步，否则可能会有消息错乱等各种问题。
-                                 self.sn = 0;
-                                 self.session_id = None;
-                                 self.gateway_resume_url = None;
-                                 self.wait_process_event_map.clear();
-                                 self.state = BotState::Reconnect;
-                             },
+                                &WS_RECONNECT =>  {
+                                    error!("当前连接失效，准备重新连接...");
+                                    // KookDocs: 任何时候，收到 reconnect 包，应该将当前消息队列，sn等全部清空，然后回到第 1 步，否则可能会有消息错乱等各种问题。
+                                    self.sn = 0;
+                                    self.session_id = None;
+                                    self.gateway_resume_url = None;
+                                    self.wait_process_event_map.clear();
+                                    self.state = BotState::Reconnect;
+                                },
 
-                             &WS_RESUME_ACK | &WS_HELLO => {
-                                 info!("client <- hello/resume_ack <- server");
-                                 let v = frame.d.unwrap();
-                                 if let Value::String(ref session_id) = v["session_id"] {
-                                     self.session_id = Some(session_id.to_owned());
-                                     info!("会话: {}", session_id);
-                                 }
-                             },
+                                &WS_RESUME_ACK | &WS_HELLO => {
+                                    info!("client <- hello/resume_ack <- server");
+                                    let v = frame.d.unwrap();
+                                    if let Value::String(ref session_id) = v["session_id"] {
+                                        self.session_id = Some(session_id.to_owned());
+                                        info!("会话: {}", session_id);
+                                    }
+                                },
 
-                             _ => {
-                                 info!("未接电话：{:?}", frame);
-                             }
+                                _ => {
+                                    info!("未接电话：{:?}", frame);
+                                }
                             };
-                    }
+                        }
 
-                     // 根据官方文档，只有事件帧会有SN。
-                    // 带SN的数据帧都装进wait_processing_msg_map等待后续处理
+                        // 根据官方文档，只有事件帧会有SN。
+                        // 带SN的数据帧都装进wait_processing_msg_map等待后续处理
                        Some(sn) => {
-                        info!("rece sn: {}", sn);
-                  // 小于机器人的信令，说明是处理过的消息，丢弃
-                  if self.sn >= sn {
-                       continue;
-                  }
+                            info!("rece sn: {}", sn);
+                            // 小于机器人的信令，说明是处理过的消息，丢弃
+                            if self.sn >= sn {
+                                continue;
+                            }
 
-                  // 将信令加入待处理Map
-                  if self.sn < sn {
-                      self.wait_process_event_map.insert(sn, frame);
-                  }
-              }
-                }
+                            // 将信令加入待处理Map
+                            if self.sn < sn {
+                                self.wait_process_event_map.push(Reverse(frame));
+                            }
+                        }
+                    }
 
 
                     // 处理待处理的信令
                     loop {
-                    // 下一条信令编号
-                    let next_sn = self.sn + 1;
-                    match self.wait_process_event_map.remove(&next_sn) {
-                        Some(f) => {
-                            match &f.s {
-                                &WS_MESSAGE => {
-                                    // 重新对帧进行序列化，变成事件消息格式
-                                    let event_frame = KookWSFrame::<KookEventMessage>::try_from(f).expect("事件消息反序列化失败.");
-                                    // 发送消息广播给所有的信道
-                                    if let Some(sender) = &self.event_sender {
-                                        if let Err(e) = sender.send(BotNetworkEvent::Message(Box::new(event_frame.d.unwrap()))) {
-                                            error!("通信运行时消息发送失败：{}", e);
+                        // 下一条信令编号
+                        let next_sn = self.sn + 1;
+
+                        match self.wait_process_event_map.peek() {
+                            Some(Reverse(f))  => {
+                                if f.sn !=  next_sn.into() {
+                                    info!("待处理的消息数量: {}",self.wait_process_event_map.len());
+                                    break;
+                                }
+                            },
+                            None => {
+                                info!("消息已处理完成");
+                                break
+                            },
+                        }
+
+                        if let Some(Reverse(f)) = self.wait_process_event_map.pop() {
+                            match f.s {
+                                WS_MESSAGE => {
+                                        // 重新对帧进行序列化，变成事件消息格式
+                                        let event_frame = KookWSFrame::<KookEventMessage>::try_from(f).expect("事件消息反序列化失败.");
+                                        // 发送消息广播给所有的信道
+                                        if let Some(sender) = &self.event_sender {
+                                            if let Err(e) = sender.send(BotNetworkEvent::Message(Box::new(event_frame.d.unwrap()))) {
+                                                error!("通信运行时消息发送失败：{}", e);
+                                            }
                                         }
-                                     }
                                 },
                                 _ => {
                                     warn!("未接电话：{:?}", f);
                                 }
-                               };
+                            };
                             self.sn = next_sn;
-                        },
-                        // 没有的话直接退出，继续熬
-                        None => {
-                            info!("待处理的消息数量: {}",self.wait_process_event_map.len());
-                            break;
-                        },
+                        }
                     }
-                }
                 };
-               }
+            }
 
                 // 持久化机器人状态
                 _ = store_sync_interval.tick() =>  {

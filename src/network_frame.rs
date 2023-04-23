@@ -2,10 +2,10 @@ use std::io::Read;
 
 use anyhow::bail;
 use flate2::read::ZlibDecoder;
-use log::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message;
+use tracing::*;
 
 // 信令
 pub const WS_MESSAGE: u8 = 0;
@@ -145,6 +145,7 @@ impl TryFrom<KookWSFrame<Value>> for KookWSFrame<KookEventMessage> {
 }
 
 impl<T> Default for KookWSFrame<T> {
+    #[inline]
     fn default() -> Self {
         Self {
             s: Default::default(),
@@ -153,3 +154,25 @@ impl<T> Default for KookWSFrame<T> {
         }
     }
 }
+
+impl<T> Ord for KookWSFrame<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.sn.cmp(&other.sn)
+    }
+}
+
+impl<T> PartialEq for KookWSFrame<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.sn.eq(&other.sn)
+    }
+}
+
+impl<T> PartialOrd for KookWSFrame<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.sn.cmp(&other.sn))
+    }
+}
+
+impl<T> Eq for KookWSFrame<T> {}

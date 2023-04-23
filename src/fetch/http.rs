@@ -1,9 +1,8 @@
 use std::time::Duration;
 
+use super::{feed::Feed, FromXmlWithBufRead};
 use once_cell::sync::OnceCell;
 use thiserror::Error;
-
-use super::{feed::Feed, FromXmlWithBufRead};
 
 static RESP_SIZE_LIMIT: OnceCell<u64> = OnceCell::new();
 static CLIENT: OnceCell<reqwest::Client> = OnceCell::new();

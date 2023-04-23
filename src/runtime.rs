@@ -8,7 +8,6 @@ use crate::utils::{find_http_url, Throttle};
 use crate::{fetch, push};
 use futures_util::FutureExt;
 use futures_util::StreamExt;
-use log::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::cmp;
@@ -18,6 +17,7 @@ use std::time::{Duration, SystemTime};
 use thiserror::Error;
 use tokio::sync::{broadcast, Notify};
 use tokio_util::time::DelayQueue;
+use tracing::{debug, error, info, warn};
 
 const COMMAND_RSS: &str = "/rss";
 const COMMAND_SUB: &str = "/sub";
@@ -61,6 +61,7 @@ impl KsbotRuntime {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     fn help(&self) -> String {
         "/rss        - 显示当前订阅的 RSS 列表
 /sub        - 订阅一个 RSS: /sub http://example.com/feed.xml
@@ -71,6 +72,7 @@ impl KsbotRuntime {
     }
 
     // 订阅
+    #[tracing::instrument(skip(self))]
     async fn command_sub(&self, msg: &KookEventMessage, args: &[&str]) -> Result<(), KsbotError> {
         let url = args[0];
 
@@ -92,6 +94,7 @@ impl KsbotRuntime {
     }
 
     // 取消订阅
+    #[tracing::instrument(skip(self))]
     async fn command_unsub(&self, msg: &KookEventMessage, args: &[&str]) -> Result<(), KsbotError> {
         let url = args[0];
 
@@ -107,6 +110,7 @@ impl KsbotRuntime {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn command_reg(&self, msg: &KookEventMessage, args: &[&str]) -> Result<(), KsbotError> {
         let url = args[0];
         let reg = args[1];
@@ -127,11 +131,13 @@ impl KsbotRuntime {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn met_me(&self, msg: &KookEventMessage) -> Result<(), KsbotError> {
         push_info(&self.help(), msg).await?;
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn command_rss(&self, msg: &KookEventMessage) -> Result<(), KsbotError> {
         let channel_id = msg.target_id.to_owned().unwrap();
         let feeds = self.db.channel_feed_list(&channel_id)?;
