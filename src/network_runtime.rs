@@ -292,8 +292,8 @@ impl BotNetworkRuntime {
 
                         // 处理不带信令的数据帧
                         None => {
-                            match &frame.s {
-                                &WS_PONG => {
+                            match frame.s {
+                                WS_PONG => {
                                     info!("client <- pong <- server ");
                                     self.heart_chan.0.send(true).await?;
                                     if let Some(sender) = &self.event_sender {
@@ -303,7 +303,7 @@ impl BotNetworkRuntime {
                                     }
                                 },
 
-                                &WS_RECONNECT =>  {
+                                WS_RECONNECT =>  {
                                     error!("当前连接失效，准备重新连接...");
                                     // KookDocs: 任何时候，收到 reconnect 包，应该将当前消息队列，sn等全部清空，然后回到第 1 步，否则可能会有消息错乱等各种问题。
                                     self.sn = 0;
@@ -313,7 +313,7 @@ impl BotNetworkRuntime {
                                     self.state = BotState::Reconnect;
                                 },
 
-                                &WS_RESUME_ACK | &WS_HELLO => {
+                                WS_RESUME_ACK | WS_HELLO => {
                                     info!("client <- hello/resume_ack <- server");
                                     let v = frame.d.unwrap();
                                     if let Value::String(ref session_id) = v["session_id"] {
