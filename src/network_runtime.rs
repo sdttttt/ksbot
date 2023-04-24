@@ -245,7 +245,7 @@ impl BotNetworkRuntime {
         eg.forward(1);
 
         // 机器人持久化定时器，10s一次
-        let mut store_sync_interval = tokio::time::interval(Duration::from_secs(5));
+        let mut store_sync_interval = tokio::time::interval(Duration::from_secs(10));
 
         let mut timeout_count = 0;
 
