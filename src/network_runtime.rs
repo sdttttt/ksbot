@@ -3,6 +3,7 @@ use crate::conf::{BotConfig, BOT_STORE_FILE_PATH};
 use crate::network_frame::{
     KookEventMessage, KookWSFrame, WS_HELLO, WS_MESSAGE, WS_PONG, WS_RECONNECT, WS_RESUME_ACK,
 };
+use crate::utils::ExponentRegress;
 use anyhow::bail;
 use futures_util::{
     stream::{SplitSink, SplitStream, StreamExt},
@@ -134,7 +135,7 @@ impl BotNetworkRuntime {
     pub async fn connect(&mut self) -> Result<(), anyhow::Error> {
         // 网关连接计数器
         let mut connect_gateway_count = 0;
-
+        let eg = ExponentRegress::from_base(2);
         loop {
             match self.state {
                 BotState::GetGateway | BotState::Reconnect => match self.try_get_gateway().await {
@@ -160,6 +161,7 @@ impl BotNetworkRuntime {
                             self.state = BotState::Working;
                             // 成功后，重置连接网关计数
                             connect_gateway_count = 0;
+                            eg.reset();
                             info!("连接网关成功，等待服务器响应.")
                         }
                         Err(e) => {
@@ -169,7 +171,7 @@ impl BotNetworkRuntime {
                                 self.state = BotState::GetGateway;
                             }
                             connect_gateway_count += 1;
-                            sleep(Duration::from_secs(4)).await;
+                            sleep(Duration::from_secs(eg.get() as u64)).await;
                         }
                     }
                 }
@@ -238,6 +240,10 @@ impl BotNetworkRuntime {
         // 心跳定时器，30s一次
         let mut keeplive_interval = tokio::time::interval(Duration::from_secs(30));
 
+        let eg = ExponentRegress::from_base(2);
+        // 快进1轮，从4开始
+        eg.forward(1);
+
         // 机器人持久化定时器，10s一次
         let mut store_sync_interval = tokio::time::interval(Duration::from_secs(5));
 
@@ -255,15 +261,19 @@ impl BotNetworkRuntime {
                     let ping_msg = Message::try_from(ping_frame).unwrap();
                     write.send(ping_msg).await?;
                     info!("client -> ping -> server");
-                    match timeout(Duration::from_secs(6), self.heart_chan.1.recv()).await {
+                    match timeout(Duration::from_secs(eg.get() as u64), self.heart_chan.1.recv()).await {
                         Err(_) => {
-                            // 最多超时6次，六次之后进入超时状态
-                            if timeout_count >= 6  {
+                            // 最多超时3次，3次之后进入超时状态
+                            if timeout_count >= 3  {
                                 self.state = BotState::HeartTimeout;
                                 bail!("pong 超时")
                             }
                         },
-                        Ok(_) => timeout_count = 0,
+                        Ok(_) => {
+                            timeout_count = 0;
+                            eg.reset();
+                            eg.forward(1);
+                        }
                     };
                 }
 

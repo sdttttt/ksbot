@@ -91,10 +91,9 @@ impl FromXmlWithReader for FeedPost {
                         post.description = TextOrCData::from_xml_with_reader(bufs, reader)?
                     }
 
-                    "author" => { 
-                        post.author  = TextOrCData::from_xml_with_reader(bufs, reader)?;
-                        
-                    },
+                    "author" => {
+                        post.author = TextOrCData::from_xml_with_reader(bufs, reader)?;
+                    }
 
                     "category" => {
                         let category_item = TextOrCData::from_xml_with_reader(bufs, reader)?;

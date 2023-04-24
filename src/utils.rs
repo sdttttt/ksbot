@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sled::IVec;
+use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -93,6 +94,36 @@ impl Drop for Opportunity {
     }
 }
 
+// 0 = Bottom, ,1 = Exponential
+pub struct ExponentRegress(usize, Cell<usize>);
+
+impl ExponentRegress {
+    pub fn from_base(base: usize) -> Self {
+        assert!(base > 1);
+        Self(base, Cell::new(1))
+    }
+
+    #[inline]
+    pub fn get(&self) -> usize {
+        let mut result = self.0;
+        for _ in 1..self.1.get() {
+            result *= self.0;
+        }
+        self.1.set(self.1.get() + 1);
+        result
+    }
+
+    #[inline]
+    pub fn forward(&self, count: usize) {
+        self.1.set(self.1.get() + count);
+    }
+
+    #[inline]
+    pub fn reset(&self) {
+        self.1.set(1);
+    }
+}
+
 #[cfg(test)]
 mod test {
 
@@ -147,5 +178,38 @@ mod test {
             .as_str();
 
         assert_eq!("http://175.24.205.140:12000/nga/forum/-61285727", r1);
+    }
+
+    #[test]
+    fn test_exponent_regress() {
+        let eg = ExponentRegress::from_base(2);
+        assert_eq!(2, eg.get());
+        assert_eq!(4, eg.get());
+        assert_eq!(8, eg.get());
+        assert_eq!(16, eg.get());
+        assert_eq!(32, eg.get());
+        assert_eq!(64, eg.get());
+        assert_eq!(128, eg.get());
+        assert_eq!(256, eg.get());
+        assert_eq!(512, eg.get());
+        assert_eq!(1024, eg.get());
+        assert_eq!(2048, eg.get());
+        assert_eq!(4096, eg.get());
+        assert_eq!(8192, eg.get());
+
+        eg.reset();
+        assert_eq!(2, eg.get());
+        assert_eq!(4, eg.get());
+        assert_eq!(8, eg.get());
+        assert_eq!(16, eg.get());
+        assert_eq!(32, eg.get());
+        assert_eq!(64, eg.get());
+        assert_eq!(128, eg.get());
+        assert_eq!(256, eg.get());
+        assert_eq!(512, eg.get());
+        assert_eq!(1024, eg.get());
+        assert_eq!(2048, eg.get());
+        assert_eq!(4096, eg.get());
+        assert_eq!(8192, eg.get());
     }
 }
