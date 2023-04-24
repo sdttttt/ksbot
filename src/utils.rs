@@ -17,24 +17,24 @@ pub fn ivec_to_str(vec: IVec) -> String {
         .to_owned()
 }
 
-#[inline]
-pub fn split_vec_filter_empty(s: String, pat: char) -> Vec<String> {
-    s.split(pat)
-        .filter(|t| !t.is_empty())
-        .map(|t| t.to_owned())
-        .collect()
-}
+//#[inline]
+//pub fn split_vec_filter_empty(s: String, pat: char) -> Vec<String> {
+//    s.split(pat)
+//        .filter(|t| !t.is_empty())
+//        .map(|t| t.to_owned())
+//        .collect()
+//}
 
-#[inline]
-pub fn split_filter_empty_join_process(
-    s: String,
-    pat: char,
-    f: impl FnOnce(&mut Vec<String>),
-) -> String {
-    let mut vec = split_vec_filter_empty(s, pat);
-    f(&mut vec);
-    vec.join(&*pat.to_string())
-}
+//#[inline]
+//pub fn split_filter_empty_join_process(
+//    s: String,
+//    pat: char,
+//    f: impl FnOnce(&mut Vec<String>),
+//) -> String {
+//    let mut vec = split_vec_filter_empty(s, pat);
+//    f(&mut vec);
+//    vec.join(&*pat.to_string())
+//}
 
 #[inline]
 pub fn find_http_url(url: &str) -> Option<&str> {
@@ -129,21 +129,21 @@ mod test {
 
     use super::*;
 
-    #[test]
-    fn test_split_vec_filter_empty() {
-        let s = "123123123123;123123123123".to_owned();
-        let r = split_vec_filter_empty(s, ';');
-        assert_eq!("123123123123", r[0]);
-        assert_eq!("123123123123", r[1]);
+    //#[test]
+    //fn test_split_vec_filter_empty() {
+    //    let s = "123123123123;123123123123".to_owned();
+    //    let r = split_vec_filter_empty(s, ';');
+    //    assert_eq!("123123123123", r[0]);
+    //    assert_eq!("123123123123", r[1]);
 
-        let s1 = "123123123123".to_owned();
-        let r1 = split_vec_filter_empty(s1, ';');
-        assert_eq!("123123123123", r1[0]);
+    //    let s1 = "123123123123".to_owned();
+    //    let r1 = split_vec_filter_empty(s1, ';');
+    //    assert_eq!("123123123123", r1[0]);
 
-        let s2 = "13070225088303411203".to_owned();
-        let r2 = split_vec_filter_empty(s2, ';');
-        assert_eq!("13070225088303411203", r2[0]);
-    }
+    //    let s2 = "13070225088303411203".to_owned();
+    //    let r2 = split_vec_filter_empty(s2, ';');
+    //    assert_eq!("13070225088303411203", r2[0]);
+    //}
 
     #[test]
     fn test_hash() {
