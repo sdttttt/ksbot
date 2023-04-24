@@ -106,10 +106,16 @@ impl ExponentRegress {
     #[inline]
     pub fn get(&self) -> usize {
         let mut result = self.0;
-        for _ in 1..self.1.get() {
-            result *= self.0;
+        let count: usize = self.1.get();
+        if self.0 == 2 {
+            result <<= count;
+        } else {
+            for _ in 1..self.1.get() {
+                result *= self.0;
+            }
         }
-        self.1.set(self.1.get() + 1);
+
+        self.1.set(count + 1);
         result
     }
 
