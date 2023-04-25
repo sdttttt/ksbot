@@ -29,9 +29,12 @@ pub const WS_RESUME_ACK: u8 = 6;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KookWSFrame<T> {
-    pub s: u8,           // 信令
-    pub d: Option<T>,    // 数据
-    pub sn: Option<u64>, // 消息计数ID和服务端保持一致
+    // 信令
+    pub s: u8,
+    // 数据
+    pub d: Option<T>,
+    // 消息计数ID和服务端保持一致
+    pub sn: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

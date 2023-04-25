@@ -190,18 +190,18 @@ mod test {
     fn test_exponent_regress() {
         let eg = ExponentRegress::from_base(2);
         assert_eq!(2, eg.get());
-        assert_eq!(4, eg.get());
-        assert_eq!(8, eg.get());
-        assert_eq!(16, eg.get());
-        assert_eq!(32, eg.get());
-        assert_eq!(64, eg.get());
-        assert_eq!(128, eg.get());
-        assert_eq!(256, eg.get());
-        assert_eq!(512, eg.get());
-        assert_eq!(1024, eg.get());
-        assert_eq!(2048, eg.get());
-        assert_eq!(4096, eg.get());
-        assert_eq!(8192, eg.get());
+        assert_eq!(2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
 
         eg.reset();
         assert_eq!(2, eg.get());
@@ -220,17 +220,17 @@ mod test {
 
         eg.reset();
         assert_eq!(2, eg.get());
-        assert_eq!(4, eg.get());
-        assert_eq!(8, eg.get());
-        assert_eq!(16, eg.get());
-        assert_eq!(32, eg.get());
-        assert_eq!(64, eg.get());
-        assert_eq!(128, eg.get());
-        assert_eq!(256, eg.get());
-        assert_eq!(512, eg.get());
-        assert_eq!(1024, eg.get());
-        assert_eq!(2048, eg.get());
-        assert_eq!(4096, eg.get());
-        assert_eq!(8192, eg.get());
+        assert_eq!(2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
+        assert_eq!(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, eg.get());
     }
 }
