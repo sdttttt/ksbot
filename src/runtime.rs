@@ -6,6 +6,7 @@ use crate::network_runtime::BotNetworkEvent;
 use crate::push::{push_info, push_post};
 use crate::utils::{find_http_url, Throttle};
 use crate::{fetch, push};
+use anyhow::anyhow;
 use futures_util::FutureExt;
 use futures_util::StreamExt;
 use once_cell::sync::Lazy;
@@ -19,10 +20,10 @@ use tokio::sync::{broadcast, Notify};
 use tokio_util::time::DelayQueue;
 use tracing::{debug, error, info, warn};
 
-const COMMAND_RSS: &str = "/rss";
-const COMMAND_SUB: &str = "/sub";
-const COMMAND_UNSUB: &str = "/unsub";
-const COMMAND_REG: &str = "/reg";
+const COMMAND_RSS: &str = "rss";
+const COMMAND_SUB: &str = "sub";
+const COMMAND_UNSUB: &str = "unsub";
+const COMMAND_REG: &str = "reg";
 
 const SPACE: &str = " ";
 
@@ -39,7 +40,7 @@ pub enum KsbotError {
     #[error("正则编译错误: {0}")]
     NotRegex(#[from] regex::Error),
     #[error("ksbot错误: {0}")]
-    InnerRuntime(#[from] anyhow::Error),
+    Anyhow(#[from] anyhow::Error),
     #[error("订阅错误: {0}")]
     Feed(#[from] fetch::FeedError),
     #[error("平台消息错误: {0}")]
@@ -63,10 +64,10 @@ impl KsbotRuntime {
 
     #[tracing::instrument(skip(self))]
     fn help(&self) -> String {
-        "/rss        - 显示当前订阅的 RSS 列表
-/sub        - 订阅一个 RSS: /sub http://example.com/feed.xml
-/unsub      - 退订一个 RSS: /unsub http://example.com/feed.xml
-/reg        - 设置过滤正则: /reg http://example.com/feed.xml (华为|蒂法)
+        "rss        - 显示当前订阅的 RSS 列表
+sub        - 订阅一个 RSS: /sub http://example.com/feed.xml
+unsub      - 退订一个 RSS: /unsub http://example.com/feed.xml
+reg        - 设置过滤正则: /reg http://example.com/feed.xml (华为|蒂法)
 "
         .to_owned()
     }
@@ -216,6 +217,7 @@ impl KsbotRuntime {
     }
 
     async fn on_connect(&mut self) -> Result<(), KsbotError> {
+        info!("on_connect: get bot info.");
         let me = user_me().await?;
         self.me_info = Some(me);
         Ok(())
@@ -231,67 +233,61 @@ impl KsbotRuntime {
         }
 
         info!(
-            "channel_name = {:?}, nickname = {:?}, content = {:?}, type = {:?}, msg_timestrap = {:?} ",
-            msg.channel_name, msg.nickname, msg.content, msg.typ, msg.msg_timestamp
+            channel_name = msg.channel_name,
+            nickname = msg.nickname,
+            content = msg.content,
+            typ = msg.typ,
+            msg_timestrap = msg.msg_timestamp
         );
 
-        let content = msg.content.to_owned().unwrap_or_else(|| "".to_owned());
-        let channel_id = msg.target_id.to_owned().unwrap_or_else(|| "".to_owned());
+        let content = msg.content.to_owned().unwrap_or_else(|| "".into());
 
-        // 参数命令
-        {
-            if content.starts_with(COMMAND_SUB) {
-                let args = content
-                    .split(SPACE)
-                    .filter(|t| !t.is_empty())
-                    .collect::<Vec<&str>>();
+        let channel_id = match msg.target_id {
+            None => return Err(KsbotError::Anyhow(anyhow!("not have a channel id?"))),
+            Some(ref s) => s,
+        };
+
+        // `@用户名` 这种信息在content中显示的格式是：`(met){用户ID}(met)` 这样的形式
+        let met_me = format!("(met){}(met)", self.me_info.as_ref().unwrap().id);
+
+        let args = if content.trim().starts_with(&met_me) {
+            content
+                .split(SPACE)
+                .filter(|t| !t.is_empty())
+                .skip(1) // 跳过 @用户名
+                .collect::<Vec<&str>>()
+        } else {
+            return Ok(());
+        };
+
+        // 帮助说明，如果只被@，后面没有任何命令
+        if args.is_empty() {
+            self.met_me(msg).await?;
+            return Ok(());
+        }
+
+        match args[0] {
+            COMMAND_SUB => {
                 if args.len() == 2 && !channel_id.is_empty() {
                     self.command_sub(msg, &args[1..]).await?;
-                    return Ok(());
                 }
             }
-
-            if content.starts_with(COMMAND_UNSUB) {
-                let cmd_args = content
-                    .split(SPACE)
-                    .filter(|t| !t.is_empty())
-                    .collect::<Vec<&str>>();
-                if cmd_args.len() == 2 && !channel_id.is_empty() {
-                    self.command_unsub(msg, &cmd_args[1..]).await?;
-                    return Ok(());
+            COMMAND_UNSUB => {
+                if args.len() == 2 && !channel_id.is_empty() {
+                    self.command_unsub(msg, &args[1..]).await?;
                 }
             }
-
-            if content.starts_with(COMMAND_REG) {
-                let cmd_args = content
-                    .split(SPACE)
-                    .filter(|t| !t.is_empty())
-                    .collect::<Vec<&str>>();
-                if cmd_args.len() == 3 && !channel_id.is_empty() {
-                    self.command_reg(msg, &cmd_args[1..]).await?;
-                    return Ok(());
+            COMMAND_REG => {
+                if args.len() == 3 && !channel_id.is_empty() {
+                    self.command_reg(msg, &args[1..]).await?;
                 }
             }
-        }
-
-        // 无参数命令
-        {
-            match content.trim() {
-                COMMAND_RSS => {
+            COMMAND_RSS => {
+                if args.len() == 1 && !channel_id.is_empty() {
                     self.command_rss(msg).await?;
-                    return Ok(());
                 }
-                _ => {}
             }
-        }
-
-        // 帮助说明，如果被@
-        {
-            // `@用户名` 这种信息在content中显示的格式是：`(met){用户ID}(met)` 这样的形式
-            let met_me = format!("(met){}(met)", self.me_info.as_ref().unwrap().id);
-            if content.contains(&met_me) {
-                self.met_me(msg).await?;
-            }
+            _ => (),
         }
 
         Ok(())
@@ -365,4 +361,20 @@ fn is_valid_message(msg: &KookEventMessage) -> bool {
     }
 
     true
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_content_vec() {
+        let content = "@aaa rss http://example.com";
+        let args = content
+            .split(" ")
+            .filter(|t| !t.is_empty())
+            .skip(1) // 跳过 @用户名
+            .collect::<Vec<&str>>();
+
+        assert_eq!(args[0], "rss");
+        assert_eq!(args[1], "http://example.com");
+    }
 }
