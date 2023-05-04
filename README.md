@@ -12,10 +12,10 @@
 
 ## Using
 ```
-/rss       - 显示当前订阅的 RSS 列表
-/sub       - 订阅一个 RSS: /sub http://example.com/feed.xml
-/unsub     - 退订一个 RSS: /unsub http://example.com/feed.xml
-/reg       - 设置过滤正则: /reg http://example.com/feed.xml (华为|蒂法)
+@机器人 rss       - 显示当前订阅的 RSS 列表
+@机器人 sub       - 订阅一个 RSS: @机器人 sub http://example.com/feed.xml
+@机器人 unsub     - 退订一个 RSS: @机器人 unsub http://example.com/feed.xml
+@机器人 reg       - 设置过滤正则: @机器人 reg http://example.com/feed.xml (华为|蒂法)
 ```
 
 代码基本就三部分，网络事件运行时和RSS订阅事件，和kv数据库.
