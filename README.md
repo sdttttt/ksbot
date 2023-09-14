@@ -7,8 +7,9 @@
 - [x] Atom 1.0
 
 ## 直接进行一个邀请
-- [MS-06S](https://www.kookapp.cn/app/oauth2/authorize?id=15283&permissions=268288&client_id=Jttc6p-vEtZoVYVo&redirect_uri=&scope=bot)
-- [RX-78-2](https://www.kookapp.cn/app/oauth2/authorize?id=16840&permissions=268288&client_id=EWnSjXXkSnVmfm7-&redirect_uri=&scope=bot)
+
+服务器过期了, 没了呜呜呜
+
 
 ## Using
 ```
