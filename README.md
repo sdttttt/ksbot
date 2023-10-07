@@ -39,3 +39,14 @@ docker run -d --name ksbot-master -e TOKEN=<token> ksbot:master
 # 二进制：
 ksbot -t <token>
 ```
+
+### Contribution
+
+源代码说明:
+- `/api` kook API
+- `fetch` RSS 序列化
+- `network_frame.rs` ws消息序列化
+- `network_runtime.rs` 机器人网络的运行时, kook的ws状态管理都在这里完成.
+- `runtime.rs` 机器人的运行逻辑. 包括命令处理, 机器人的内部状态还有定时任务.
+- `push.rs` 消息推送
+- `db.rs` 持久化
